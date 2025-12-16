@@ -31,6 +31,8 @@
 namespace bustub {
 
 struct PrintableBPlusTree;
+enum class Direction { LEFT, RIGHT };
+enum class Operation { SEARCH, INSERT, DELETE };
 
 /**
  * @brief Definition of the Context class.
@@ -77,12 +79,17 @@ class BPlusTree {
 
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key);
+  void DeleteEntry(const KeyType &key, Context *ctx);
+  auto Delete(const KeyType &key, Context *ctx) -> bool;
+  auto Redistribute(BPlusTreePage *sibling, BPlusTreePage *recipient, Direction direction) -> KeyType;
+  void Coalesce(BPlusTreePage *recipient, BPlusTreePage *sender);
 
   // Return the value associated with a given key
   auto GetValue(const KeyType &key, std::vector<ValueType> *result) -> bool;
 
   // Return the page id of the root node
-  auto GetRootPageId() -> page_id_t;
+  auto GetRootPageId() const -> page_id_t;
+  void SetRootPageId(page_id_t root_page_id);
 
   // Index iterator
   auto Begin() -> INDEXITERATOR_TYPE;
@@ -128,6 +135,12 @@ class BPlusTree {
   void BatchOpsFromFile(const std::filesystem::path &file_name);
 
  private:
+  auto FindLeaf(KeyType key, Context *ctx, Operation operation = Operation::INSERT) -> bool;
+  auto FindLeftMost() -> page_id_t;
+  auto StartNewTree(KeyType key, ValueType value) -> page_id_t;
+  void InsertInLeaf(KeyType key, ValueType value, Context *ctx);
+  void Split(Context *ctx);
+  void InsertInParent(page_id_t left_page_id, KeyType split_key, page_id_t right_page_id, Context *ctx);
   /* Debug Routines for FREE!! */
   void ToGraph(page_id_t page_id, const BPlusTreePage *page, std::ofstream &out);
 
@@ -149,6 +162,7 @@ class BPlusTree {
   int leaf_max_size_;
   int internal_max_size_;
   page_id_t header_page_id_;
+  // mutable std::mutex tree_latch_;
 };
 
 /**

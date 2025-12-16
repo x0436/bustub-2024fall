@@ -18,7 +18,7 @@
 namespace bustub {
 
 #define B_PLUS_TREE_INTERNAL_PAGE_TYPE BPlusTreeInternalPage<KeyType, ValueType, KeyComparator>
-#define INTERNAL_PAGE_HEADER_SIZE 12
+#define INTERNAL_PAGE_HEADER_SIZE 20
 #define INTERNAL_PAGE_SLOT_CNT \
   ((BUSTUB_PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE) / ((int)(sizeof(KeyType) + sizeof(ValueType))))  // NOLINT
 
@@ -53,7 +53,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    * the creation of a new page to make a valid `BPlusTreeInternalPage`
    * @param max_size Maximal size of the page
    */
-  void Init(int max_size = INTERNAL_PAGE_SLOT_CNT);
+  void Init(page_id_t page_id, int max_size);
 
   /**
    * @param index The index of the key to get. Index must be non-zero.
@@ -66,6 +66,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    * @param key The new value for key
    */
   void SetKeyAt(int index, const KeyType &key);
+  void SetValueAt(int index, const ValueType &value);
 
   /**
    * @param value The value to search for
@@ -104,6 +105,15 @@ class BPlusTreeInternalPage : public BPlusTreePage {
 
     return kstr;
   }
+  void Insert(KeyType key, ValueType value, const KeyComparator &comparator);
+  auto Lookup(KeyType key, const KeyComparator &comparator) const -> int;
+  auto KeyArray() -> KeyType *;
+  auto ValueArray() -> page_id_t *;
+  auto Remove(KeyType key, const KeyComparator &comparator) -> bool;
+
+  void MoveLastTo(B_PLUS_TREE_INTERNAL_PAGE_TYPE *recipient);
+  void MoveFirstTo(B_PLUS_TREE_INTERNAL_PAGE_TYPE *recipient);
+  void MoveAllTo(B_PLUS_TREE_INTERNAL_PAGE_TYPE *recipient);
 
  private:
   // Array members for page data.

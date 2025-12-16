@@ -24,7 +24,84 @@ namespace bustub {
 
 using bustub::DiskManagerUnlimitedMemory;
 
-TEST(BPlusTreeTests, DISABLED_DeleteTestNoIterator) {
+TEST(BPlusTreeTests, MyTest) {
+  // create KeyComparator and index schema
+  auto key_schema = ParseCreateStatement("a bigint");
+  GenericComparator<8> comparator(key_schema.get());
+
+  auto disk_manager = std::make_unique<DiskManagerUnlimitedMemory>();
+  auto *bpm = new BufferPoolManager(50, disk_manager.get());
+  // allocate header_page
+  page_id_t page_id = bpm->NewPage();
+  // create b+ tree
+  BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", page_id, bpm, comparator, 3, 3);
+  GenericKey<8> index_key;
+  RID rid;
+
+  std::vector<int64_t> keys = {1, 2, 3, 4};
+  for (auto key : keys) {
+    std::cerr << "Insert: " << key << "\n";
+    int64_t value = key & 0xFFFFFFFF;
+    rid.Set(static_cast<int32_t>(key >> 32), value);
+    index_key.SetFromInteger(key);
+    tree.Insert(index_key, rid);
+  }
+  std::cerr << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n";
+  std::vector<RID> rids;
+  for (auto key : keys) {
+    std::cerr << "Search: " << key << "\n";
+    rids.clear();
+    index_key.SetFromInteger(key);
+    tree.GetValue(index_key, &rids);
+    EXPECT_EQ(rids.size(), 1);
+
+    int64_t value = key & 0xFFFFFFFF;
+    EXPECT_EQ(rids[0].GetSlotNum(), value);
+  }
+  std::cerr << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n";
+  std::vector<int64_t> remove_keys = {1, 2};
+  for (auto key : remove_keys) {
+    std::cerr << "Remove: " << key << "\n";
+    index_key.SetFromInteger(key);
+    tree.Remove(index_key);
+  }
+
+  int64_t size = 0;
+  bool is_present;
+  std::cerr << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n";
+  for (auto key : keys) {
+    std::cerr << "Search: " << key << "\n";
+    rids.clear();
+    index_key.SetFromInteger(key);
+    is_present = tree.GetValue(index_key, &rids);
+
+    if (!is_present) {
+      std::cerr << key << " is not present\n";
+      EXPECT_NE(std::find(remove_keys.begin(), remove_keys.end(), key), remove_keys.end());
+    } else {
+      EXPECT_EQ(rids.size(), 1);
+      EXPECT_EQ(rids[0].GetPageId(), 0);
+      EXPECT_EQ(rids[0].GetSlotNum(), key);
+      ++size;
+    }
+  }
+  EXPECT_EQ(size, 2);
+  std::cerr << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n";
+  std::cerr << "Remove the remaining key\n";
+
+  index_key.SetFromInteger(3);
+  std::cerr << "Remove 3\n";
+  tree.Remove(index_key);
+  index_key.SetFromInteger(4);
+  std::cerr << "Remove 4\n";
+  tree.Remove(index_key);
+  auto root_page_id = tree.GetRootPageId();
+  ASSERT_EQ(root_page_id, INVALID_PAGE_ID);
+
+  delete bpm;
+}
+
+TEST(BPlusTreeTests, DeleteTestNoIterator) {
   // create KeyComparator and index schema
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
@@ -91,7 +168,7 @@ TEST(BPlusTreeTests, DISABLED_DeleteTestNoIterator) {
   delete bpm;
 }
 
-TEST(BPlusTreeTests, DISABLED_SequentialEdgeMixTest) {  // NOLINT
+TEST(BPlusTreeTests, SequentialEdgeMixTest) {  // NOLINT
   // create KeyComparator and index schema
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
@@ -112,6 +189,7 @@ TEST(BPlusTreeTests, DISABLED_SequentialEdgeMixTest) {  // NOLINT
     std::vector<int64_t> inserted = {};
     std::vector<int64_t> deleted = {};
     for (auto key : keys) {
+      std::cerr << "Insert: " << key << "\n";
       int64_t value = key & 0xFFFFFFFF;
       rid.Set(static_cast<int32_t>(key >> 32), value);
       index_key.SetFromInteger(key);
@@ -122,14 +200,16 @@ TEST(BPlusTreeTests, DISABLED_SequentialEdgeMixTest) {  // NOLINT
     }
 
     index_key.SetFromInteger(1);
+    std::cerr << "Remove: 1\n";
     tree.Remove(index_key);
     deleted.push_back(1);
-    inserted.erase(std::find(inserted.begin(), inserted.end(), 1));
+    inserted.erase(std::find(inserted.begin(), inserted.end(), 1));  // find的原理是什么
     auto res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>>(tree, inserted, deleted);
     ASSERT_TRUE(res);
 
     index_key.SetFromInteger(3);
     rid.Set(3, 3);
+    std::cerr << "Insert: 3\n";
     tree.Insert(index_key, rid);
     inserted.push_back(3);
     res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>>(tree, inserted, deleted);
@@ -137,10 +217,11 @@ TEST(BPlusTreeTests, DISABLED_SequentialEdgeMixTest) {  // NOLINT
 
     keys = {4, 14, 6, 2, 15, -2, -1, 3, 5, 25, 20};
     for (auto key : keys) {
+      std::cerr << "Remove: " << key << "\n";
       index_key.SetFromInteger(key);
       tree.Remove(index_key);
       deleted.push_back(key);
-      inserted.erase(std::find(inserted.begin(), inserted.end(), key));
+      inserted.erase(std::find(inserted.begin(), inserted.end(), key));  // find的原理是什么
       res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>>(tree, inserted, deleted);
       ASSERT_TRUE(res);
     }

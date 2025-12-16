@@ -19,7 +19,7 @@
 namespace bustub {
 
 #define B_PLUS_TREE_LEAF_PAGE_TYPE BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>
-#define LEAF_PAGE_HEADER_SIZE 16
+#define LEAF_PAGE_HEADER_SIZE 24
 #define LEAF_PAGE_SLOT_CNT ((BUSTUB_PAGE_SIZE - LEAF_PAGE_HEADER_SIZE) / (sizeof(KeyType) + sizeof(ValueType)))
 
 /**
@@ -58,12 +58,22 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    * method to set default values
    * @param max_size Max size of the leaf node
    */
-  void Init(int max_size = LEAF_PAGE_SLOT_CNT);
+  void Init(page_id_t page_id, int max_size = LEAF_PAGE_SLOT_CNT);
 
   // Helper methods
   auto GetNextPageId() const -> page_id_t;
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
+  auto ValueAt(int index) const -> ValueType;
+  auto Insert(KeyType key, ValueType value, const KeyComparator &comparator) -> bool;
+  auto Lookup(KeyType key, const KeyComparator &comparator) const -> int;  // 二分
+  void MoveHalfTo(B_PLUS_TREE_LEAF_PAGE_TYPE *recipient);
+
+  auto Remove(KeyType key, const KeyComparator &comparator) -> bool;
+
+  void MoveLastTo(B_PLUS_TREE_LEAF_PAGE_TYPE *recipient);
+  void MoveFirstTo(B_PLUS_TREE_LEAF_PAGE_TYPE *recipient);
+  void MoveAllTo(B_PLUS_TREE_LEAF_PAGE_TYPE *recipient);
 
   /**
    * @brief For test only return a string representing all keys in

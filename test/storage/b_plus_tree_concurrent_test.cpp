@@ -50,6 +50,7 @@ void InsertHelper(BPlusTree<GenericKey<8>, RID, GenericComparator<8>> *tree, con
   RID rid;
 
   for (auto key : keys) {
+    // std::cerr << "Insert: " << key << "\n";
     int64_t value = key & 0xFFFFFFFF;
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
@@ -79,6 +80,7 @@ void DeleteHelper(BPlusTree<GenericKey<8>, RID, GenericComparator<8>> *tree, con
   GenericKey<8> index_key;
 
   for (auto key : remove_keys) {
+    // std::cerr << "Remove: " << key << "\n";
     index_key.SetFromInteger(key);
     tree->Remove(index_key);
   }
@@ -119,7 +121,7 @@ const size_t MIXTEST_NUM_ITERS = 20;
 static const size_t BPM_SIZE = 50;
 
 void InsertTest1Call() {
-  for (size_t iter = 0; iter < NUM_ITERS; iter++) {
+  for (size_t iter = 0; iter < NUM_ITERS; iter++) {  // 迭代50次
     // create KeyComparator and index schema
     auto key_schema = ParseCreateStatement("a bigint");
     GenericComparator<8> comparator(key_schema.get());
@@ -136,14 +138,15 @@ void InsertTest1Call() {
     // keys to Insert
     std::vector<int64_t> keys;
     int64_t scale_factor = 100;
-    for (int64_t key = 1; key < scale_factor; key++) {
+    for (int64_t key = 1; key < scale_factor; key++) {  // 将1~99的整数放入keys数组
       keys.push_back(key);
     }
-    LaunchParallelTest(2, InsertHelper, &tree, keys);
+    LaunchParallelTest(2, InsertHelper, &tree, keys);  // 两个线程并发执行 InsertHelper，插入所有 key
 
     std::vector<RID> rids;
     GenericKey<8> index_key;
-    for (auto key : keys) {
+    std::cerr << "Search: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n";
+    for (auto key : keys) {  // 验证每个 key 都能查到唯一的 RID
       rids.clear();
       index_key.SetFromInteger(key);
       tree.GetValue(index_key, &rids);
@@ -155,8 +158,8 @@ void InsertTest1Call() {
 
     int64_t start_key = 1;
     int64_t current_key = start_key;
-
-    for (auto iter = tree.Begin(); iter != tree.End(); ++iter) {
+    std::cerr << "Traverse: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n";
+    for (auto iter = tree.Begin(); iter != tree.End(); ++iter) {  // 从最左叶子开始递增遍历
       const auto &pair = *iter;
       auto location = pair.second;
       ASSERT_EQ(location.GetPageId(), 0);
@@ -174,7 +177,7 @@ void InsertTest1Call() {
 }
 
 void InsertTest2Call() {
-  for (size_t iter = 0; iter < NUM_ITERS; iter++) {
+  for (size_t iter = 0; iter < MIXTEST_NUM_ITERS; iter++) {  // NUM_ITERS = 50
     // create KeyComparator and index schema
     auto key_schema = ParseCreateStatement("a bigint");
     GenericComparator<8> comparator(key_schema.get());
@@ -336,24 +339,24 @@ void MixTest1Call() {
     std::vector<int64_t> for_delete;
     int64_t sieve = 2;  // divide evenly
     int64_t total_keys = 1000;
-    for (int64_t i = 1; i <= total_keys; i++) {
-      if (i % sieve == 0) {
+    for (int64_t i = 1; i <= total_keys; i++) {  // 将 1..1000 的 key 按是否能被 2 整除分为两类
+      if (i % sieve == 0) {                      // 偶数
         for_insert.push_back(i);
-      } else {
+      } else {  // 奇数
         for_delete.push_back(i);
       }
     }
     // Insert all the keys to delete
     InsertHelper(&tree, for_delete);
 
-    auto insert_task = [&](int tid) { InsertHelper(&tree, for_insert); };
-    auto delete_task = [&](int tid) { DeleteHelper(&tree, for_delete); };
+    auto insert_task = [&](int tid) { InsertHelper(&tree, for_insert); };  // insert_task：插入偶数
+    auto delete_task = [&](int tid) { DeleteHelper(&tree, for_delete); };  // delete_task：删除奇数
     std::vector<std::function<void(int)>> tasks;
     tasks.emplace_back(insert_task);
     tasks.emplace_back(delete_task);
     std::vector<std::thread> threads;
     size_t num_threads = 10;
-    for (size_t i = 0; i < num_threads; i++) {
+    for (size_t i = 0; i < num_threads; i++) {  // 启动 10 个线程，交替执行插入和删除
       threads.emplace_back(tasks[i % tasks.size()], i);
     }
     for (size_t i = 0; i < num_threads; i++) {
@@ -361,8 +364,8 @@ void MixTest1Call() {
     }
 
     int64_t size = 0;
-
-    for (auto iter = tree.Begin(); iter != tree.End(); ++iter) {
+    std::cerr << "Traverse------------------------------------------------\n";
+    for (auto iter = tree.Begin(); iter != tree.End(); ++iter) {  // 最终树中应该只剩偶数
       const auto &pair = *iter;
       ASSERT_EQ((pair.first).ToString(), for_insert[size]);
       size++;
@@ -378,7 +381,7 @@ void MixTest1Call() {
 }
 
 void MixTest2Call() {
-  for (size_t iter = 0; iter < MIXTEST_NUM_ITERS; iter++) {
+  for (size_t iter = 0; iter < MIXTEST_NUM_ITERS; iter++) {  // MIXTEST_NUM_ITERS
     // create KeyComparator and index schema
     auto key_schema = ParseCreateStatement("a bigint");
     GenericComparator<8> comparator(key_schema.get());
@@ -404,7 +407,7 @@ void MixTest2Call() {
         dynamic_keys.push_back(i);
       }
     }
-    InsertHelper(&tree, perserved_keys);
+    InsertHelper(&tree, perserved_keys);  // 提前插入能被5整除的数
 
     size_t size;
 
@@ -418,7 +421,7 @@ void MixTest2Call() {
     tasks.emplace_back(delete_task);
     tasks.emplace_back(lookup_task);
 
-    size_t num_threads = 6;
+    size_t num_threads = 6;  // 6
     for (size_t i = 0; i < num_threads; i++) {
       threads.emplace_back(tasks[i % tasks.size()], i);
     }
@@ -431,7 +434,7 @@ void MixTest2Call() {
 
     for (auto iter = tree.Begin(); iter != tree.End(); ++iter) {
       const auto &pair = *iter;
-      if ((pair.first).ToString() % sieve == 0) {
+      if ((pair.first).ToString() % sieve == 0) {  // 只统计树上能被5整除的key数量
         size++;
       }
     }
@@ -442,28 +445,159 @@ void MixTest2Call() {
     delete bpm;
   }
 }
+void MyTestCall() {
+  for (size_t iter = 0; iter < 1; iter++) {  // 迭代1次
+    // create KeyComparator and index schema
+    auto key_schema = ParseCreateStatement("a bigint");
+    GenericComparator<8> comparator(key_schema.get());
 
-TEST(BPlusTreeConcurrentTest, DISABLED_InsertTest1) {  // NOLINT
+    auto *disk_manager = new DiskManagerUnlimitedMemory();
+    auto *bpm = new BufferPoolManager(BPM_SIZE, disk_manager);
+
+    // create and fetch header_page
+    page_id_t page_id = bpm->NewPage();
+
+    // create b+ tree
+    BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", page_id, bpm, comparator, 3, 3);
+    std::cerr << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n";
+    // keys to Insert
+    std::vector<int64_t> keys;
+    int64_t scale_factor = 6;                           // 100改成6, 插入 1~5
+    for (int64_t key = 1; key < scale_factor; key++) {  // 将1~99的整数放入keys数组
+      keys.push_back(key);
+    }
+    LaunchParallelTest(2, InsertHelper, &tree, keys);  // 两个线程并发执行 InsertHelper，插入所有 key
+
+    std::vector<RID> rids;
+    GenericKey<8> index_key;
+    std::cerr << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n";
+    for (auto key : keys) {  // 验证每个 key 都能查到唯一的 RID
+      std::cerr << "Search: " << key << "\n";
+      rids.clear();
+      index_key.SetFromInteger(key);
+      tree.GetValue(index_key, &rids);
+      ASSERT_EQ(rids.size(), 1);
+
+      int64_t value = key & 0xFFFFFFFF;
+      ASSERT_EQ(rids[0].GetSlotNum(), value);
+    }
+
+    int64_t start_key = 1;
+    int64_t current_key = start_key;
+    std::cerr << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n";
+    for (auto iter = tree.Begin(); iter != tree.End(); ++iter) {  // 从最左叶子开始递增遍历
+      const auto &pair = *iter;
+      auto location = pair.second;
+      std::cerr << "Find: " << (*iter).first << "\n";
+      ASSERT_EQ(location.GetPageId(), 0);
+      ASSERT_EQ(location.GetSlotNum(), current_key);
+      current_key = current_key + 1;
+    }
+
+    ASSERT_EQ(current_key, keys.size() + 1);
+
+    delete disk_manager;
+    delete bpm;
+    remove("test.db");
+    remove("test.log");
+  }
+}
+void MyMixTestCall() {
+  for (size_t iter = 0; iter < MIXTEST_NUM_ITERS; iter++) {  // MIXTEST_NUM_ITERS
+    std::cerr << "-------------------------------------------------------------\n";
+    // create KeyComparator and index schema
+    auto key_schema = ParseCreateStatement("a bigint");
+    GenericComparator<8> comparator(key_schema.get());
+
+    auto *disk_manager = new DiskManagerUnlimitedMemory();
+    auto *bpm = new BufferPoolManager(BPM_SIZE, disk_manager);
+
+    // create and fetch header_page
+    page_id_t page_id = bpm->NewPage();
+
+    // create b+ tree
+    BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", page_id, bpm, comparator, 3, 5);
+
+    // first, populate index
+    std::vector<int64_t> for_insert;
+    std::vector<int64_t> for_delete;
+    int64_t sieve = 2;  // divide evenly
+    int64_t total_keys = 1000;
+    for (int64_t i = 1; i <= total_keys; i++) {  // 将 1..1000 的 key 按是否能被 2 整除分为两类
+      if (i % sieve == 0) {                      // 偶数
+        for_insert.push_back(i);
+      } else {  // 奇数
+        for_delete.push_back(i);
+      }
+    }
+    // Insert all the keys to delete
+    InsertHelper(&tree, for_delete);  // 先把奇数全部插入
+
+    auto insert_task = [&](int tid) { InsertHelper(&tree, for_insert); };  // 插入偶数
+    auto delete_task = [&](int tid) { DeleteHelper(&tree, for_delete); };  // 删除奇数
+    std::vector<std::function<void(int)>> tasks;
+    tasks.emplace_back(insert_task);
+    tasks.emplace_back(delete_task);
+    std::vector<std::thread> threads;
+    size_t num_threads = 10;                    // 10
+    for (size_t i = 0; i < num_threads; i++) {  // num_threads个线程混合插入删除
+      threads.emplace_back(tasks[i % tasks.size()], i);
+    }
+    for (size_t i = 0; i < num_threads; i++) {
+      threads[i].join();
+    }
+    // for (size_t i = 0; i < num_threads; i++) { // 先插入后删除测试
+    //     threads.emplace_back(tasks[i % tasks.size()], i);
+    //     threads[i].join();
+    //   }
+
+    int64_t size = 0;
+    std::cerr << "Traverse------------------------------------------------\n";
+    for (auto iter = tree.Begin(); iter != tree.End(); ++iter) {  // 最终树中应该只剩偶数
+      const auto &pair = *iter;
+      // std::cerr << "find: " << (*iter).first << ", it's the " << size << " one" << ", it's page id is "<<
+      // iter.cur_page_id_ << ", offset is " << iter.offset_ << "\n";
+      EXPECT_EQ((pair.first).ToString(), for_insert[size]);  // ASSERT_EQ
+      size++;
+    }
+    std::cerr << "size~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n";
+    EXPECT_EQ(size, for_insert.size());  // B+树中的kv对数目等于插入的偶数数量 // EXPECT_EQ
+
+    delete disk_manager;
+    delete bpm;
+    remove("test.db");
+    remove("test.log");
+  }
+}
+
+TEST(BPlusTreeConcurrentTest, MyTest) {  // NOLINT
+  MyTestCall();
+}
+TEST(BPlusTreeConcurrentTest, MyMixTest) {  // NOLINT
+  MyMixTestCall();
+}
+
+TEST(BPlusTreeConcurrentTest, InsertTest1) {  // NOLINT
   InsertTest1Call();
 }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_InsertTest2) {  // NOLINT
+TEST(BPlusTreeConcurrentTest, InsertTest2) {  // NOLINT
   InsertTest2Call();
 }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_DeleteTest1) {  // NOLINT
+TEST(BPlusTreeConcurrentTest, DeleteTest1) {  // NOLINT
   DeleteTest1Call();
 }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_DeleteTest2) {  // NOLINT
+TEST(BPlusTreeConcurrentTest, DeleteTest2) {  // NOLINT
   DeleteTest2Call();
 }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_MixTest1) {  // NOLINT
+TEST(BPlusTreeConcurrentTest, MixTest1) {  // NOLINT
   MixTest1Call();
 }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_MixTest2) {  // NOLINT
+TEST(BPlusTreeConcurrentTest, MixTest2) {  // NOLINT
   MixTest2Call();
 }
 }  // namespace bustub

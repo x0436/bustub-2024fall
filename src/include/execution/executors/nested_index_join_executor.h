@@ -24,6 +24,7 @@
 #include "execution/plans/nested_index_join_plan.h"
 #include "storage/table/tmp_tuple.h"
 #include "storage/table/tuple.h"
+#include "type/value_factory.h"
 
 namespace bustub {
 
@@ -50,5 +51,17 @@ class NestIndexJoinExecutor : public AbstractExecutor {
  private:
   /** The nested index join plan node. */
   const NestedIndexJoinPlanNode *plan_;
+  std::unique_ptr<AbstractExecutor> left_child_;
+  bool is_inner_;
+  Tuple left_tuple_;
+  bool left_matched_{false};
+
+  IndexInfo *index_info_;
+  TableInfo *table_info_; // 右表
+  BPlusTreeIndexForTwoIntegerColumn *tree_;
+  std::unique_ptr<BPlusTreeIndexIteratorForTwoIntegerColumn> iterator_;
+
+  auto Match(const Tuple &left_tuple, const Tuple &right_tuple) -> bool;
+  Tuple Join(const Tuple &left_tuple, const Tuple &right_tuple);
 };
 }  // namespace bustub

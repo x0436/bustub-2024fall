@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <utility>
@@ -36,11 +37,47 @@ class SortPage {
    * TODO: Define and implement the methods for reading data from and writing data to the sort
    * page. Feel free to add other helper methods.
    */
+  SortPage(page_id_t page_id) : page_id_(page_id) {}
+  // 将tuple插入 page
+  bool InsertTuple(Tuple &tuple) {
+    if (cur_size_ == capacity_) {
+      return false;
+    }
+    auto target = reinterpret_cast<Tuple *>(SlotPtr(cur_size_));
+    *target = tuple;
+    cur_size_++;
+  }
+  Tuple GetTuple(size_t idx) const {
+    if (idx >= capacity_) {
+      throw Exception("SortPage index out of bounds");
+    }
+    auto ptr = reinterpret_cast<Tuple *>(SlotPtr(idx));
+    return *ptr;
+  }
+  size_t GetSize() const { return cur_size_; }
+
+  bool IsFull() { return cur_size_ == capacity_; }
+  // 其实可以考虑写到构造函数里
+  void Init(const Schema &schema) {
+    t_size_ = schema.GetInlinedStorageSize();
+    capacity_ = (BUFFER_POOL_SIZE - 16) / t_size_;
+  }
+  /* 调用TupleComparator对Page进行内部排序 */
+  void Sort(const std::vector<OrderBy> &order_bys) {
+    std::sort(SlotPtr(0), SlotPtr(capacity_), TupleComparator(order_bys));  // 左开右闭
+  }
+
  private:
   /**
    * TODO: Define the private members. You may want to have some necessary metadata for
    * the sort page before the start of the actual data.
    */
+  inline char *SlotPtr(size_t idx) const { return data_ + 16 + idx * t_size_; }  // ai教的
+  size_t t_size_{0};                                                             // tuple的大小+metadata的大小
+  size_t capacity_{0};
+  size_t cur_size_{0};
+  page_id_t page_id_{INVALID_PAGE_ID};
+  char *data_{nullptr};
 };
 
 /**
@@ -60,7 +97,12 @@ class MergeSortRun {
     friend class MergeSortRun;
 
    public:
-    Iterator() = default;
+    Iterator(MergeSortRun *run, page_id_t page_id, size_t offset, size_t index)
+        : run_(run), page_id_(page_id), offset_(offset), index_(index) {
+      auto guard = run_->bpm_->ReadPage(page_id_);
+      const auto *page = guard.As<SortPage>();
+      tuple_ = page->GetTuple(offset_);
+    }
 
     /**
      * Advance the iterator to the next tuple. If the current sort page is exhausted, move to the
@@ -68,7 +110,14 @@ class MergeSortRun {
      *
      * TODO: Implement this method.
      */
-    auto operator++() -> Iterator & { return *this; }
+    auto operator++() -> Iterator & {
+      offset_++;
+      if (offset_ == run_->page_capacity_) {
+        offset_ = 0;
+        page_id_ = run_->pages_[index_ + 1];
+        index_++;
+      }
+    }
 
     /**
      * Dereference the iterator to get the current tuple in the sorted run that the iterator is
@@ -76,14 +125,16 @@ class MergeSortRun {
      *
      * TODO: Implement this method.
      */
-    auto operator*() -> Tuple { return {}; }
+    auto operator*() -> Tuple { return tuple_; }
 
     /**
      * Checks whether two iterators are pointing to the same tuple in the same sorted run.
      *
      * TODO: Implement this method.
      */
-    auto operator==(const Iterator &other) const -> bool { return false; }
+    auto operator==(const Iterator &other) const -> bool {
+      return run_ == other.run_ && page_id_ == other.page_id_ && offset_ == other.offset_;
+    }
 
     /**
      * Checks whether two iterators are pointing to different tuples in a sorted run or iterating
@@ -91,14 +142,17 @@ class MergeSortRun {
      *
      * TODO: Implement this method.
      */
-    auto operator!=(const Iterator &other) const -> bool { return false; }
+    auto operator!=(const Iterator &other) const -> bool { return !(*this == other); }
 
    private:
     explicit Iterator(const MergeSortRun *run) : run_(run) {}
 
     /** The sorted run that the iterator is iterating on. */
     [[maybe_unused]] const MergeSortRun *run_;
-
+    page_id_t page_id_;
+    size_t offset_;
+    Tuple tuple_;
+    size_t index_;
     /**
      * TODO: Add your own private members here. You may want something to record your current
      * position in the sorted run. Also feel free to add additional constructors to initialize
@@ -111,14 +165,20 @@ class MergeSortRun {
    *
    * TODO: Implement this method.
    */
-  auto Begin() -> Iterator { return {}; }
+  auto Begin() -> Iterator { return Iterator(this, pages_[0], 0, 0); }
 
   /**
    * Get an iterator pointing to the end of the sorted run, i.e. the position after the last tuple.
    *
    * TODO: Implement this method.
    */
-  auto End() -> Iterator { return {}; }
+  auto End() -> Iterator {
+    page_id_t last_page_id = pages_[pages_.size() - 1];
+    auto guard = bpm_->ReadPage(last_page_id);
+    const auto *last_page = guard.As<SortPage>();
+    // offset, index
+    return Iterator(this, last_page_id, last_page->GetSize() - 1, pages_.size() - 1);
+  }
 
  private:
   /** The page IDs of the sort pages that store the sorted tuples. */
@@ -128,6 +188,7 @@ class MergeSortRun {
    * deleting the sort pages when they are no longer needed.
    */
   [[maybe_unused]] BufferPoolManager *bpm_;
+  size_t page_capacity_;  // 由于只测定固定长度的数据, 所以变量放着方便使用
 };
 
 /**
@@ -156,12 +217,14 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); }
 
  private:
+  void MergeSort(int left, int right, std::vector<MergeSortRun> &runs);
   /** The sort plan node to be executed */
   const SortPlanNode *plan_;
 
   /** Compares tuples based on the order-bys */
   TupleComparator cmp_;
-
+  std::unique_ptr<AbstractExecutor> child_executor_;
+  vector<MergeSortRun> runs_;
   /** TODO: You will want to add your own private members here. */
 };
 

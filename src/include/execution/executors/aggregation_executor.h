@@ -71,14 +71,63 @@ class SimpleAggregationHashTable {
    * @param input The input value
    */
   void CombineAggregateValues(AggregateValue *result, const AggregateValue &input) {
+    /*
+    举例:
+    result是[5 , 10, 1], input是 [1, 11, 0], 聚合规则是[min, max, count]
+    */
     for (uint32_t i = 0; i < agg_exprs_.size(); i++) {
       switch (agg_types_[i]) {
-        case AggregationType::CountStarAggregate:
-        case AggregationType::CountAggregate:
-        case AggregationType::SumAggregate:
-        case AggregationType::MinAggregate:
-        case AggregationType::MaxAggregate:
+        case AggregationType::CountStarAggregate: {
+          int64_t res = result->aggregates_[i].IsNull() ? 0 : result->aggregates_[i].GetAs<int64_t>();
+          int64_t in = input.aggregates_[i].IsNull() ? 0 : input.aggregates_[i].GetAs<int64_t>();
+          result->aggregates_[i] = ValueFactory::GetIntegerValue(res + in);
           break;
+        }
+        case AggregationType::CountAggregate: {
+          if (!input.aggregates_[i].IsNull()) {
+            if (result->aggregates_[i].IsNull()) {
+              // 首次见到非 NULL，置为 1
+              result->aggregates_[i] = ValueFactory::GetIntegerValue(1);
+            } else {
+              int64_t res = result->aggregates_[i].GetAs<int64_t>();
+              result->aggregates_[i] = ValueFactory::GetIntegerValue(res + 1);
+            }
+          }
+          break;
+        }
+
+        case AggregationType::SumAggregate: {
+          // SUM：仅在 input 非 NULL 时累加；如果 result 为 NULL 则初始化为 input
+          if (!input.aggregates_[i].IsNull()) {
+            if (result->aggregates_[i].IsNull()) {
+              result->aggregates_[i] = input.aggregates_[i];
+            } else {
+              int64_t sum = result->aggregates_[i].GetAs<int64_t>() + input.aggregates_[i].GetAs<int64_t>();
+              result->aggregates_[i] = ValueFactory::GetIntegerValue(sum);
+            }
+          }
+          break;
+        }
+
+        case AggregationType::MinAggregate: {
+          if (!input.aggregates_[i].IsNull()) {
+            if (result->aggregates_[i].IsNull() ||
+                input.aggregates_[i].CompareLessThan(result->aggregates_[i]) == CmpBool::CmpTrue) {
+              result->aggregates_[i] = input.aggregates_[i];
+            }
+          }
+          break;
+        }
+
+        case AggregationType::MaxAggregate: {
+          if (!input.aggregates_[i].IsNull()) {
+            if (result->aggregates_[i].IsNull() ||
+                input.aggregates_[i].CompareGreaterThan(result->aggregates_[i]) == CmpBool::CmpTrue) {
+              result->aggregates_[i] = input.aggregates_[i];
+            }
+          }
+          break;
+        }
       }
     }
   }
@@ -203,9 +252,9 @@ class AggregationExecutor : public AbstractExecutor {
   std::unique_ptr<AbstractExecutor> child_executor_;
 
   /** Simple aggregation hash table */
-  // TODO(Student): Uncomment SimpleAggregationHashTable aht_;
+  SimpleAggregationHashTable aht_;
 
   /** Simple aggregation hash table iterator */
-  // TODO(Student): Uncomment SimpleAggregationHashTable::Iterator aht_iterator_;
+  SimpleAggregationHashTable::Iterator aht_iterator_;
 };
 }  // namespace bustub

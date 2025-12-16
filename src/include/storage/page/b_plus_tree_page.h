@@ -56,13 +56,20 @@ class BPlusTreePage {
   void SetMaxSize(int max_size);
   auto GetMinSize() const -> int;
 
+  auto GetPageId() const -> page_id_t;
+  void SetPageId(page_id_t page_id);
+  auto GetParentId() const -> page_id_t;
+  void SetParentId(page_id_t parent_page_id);
+
  private:
   // Member variables, attributes that both internal and leaf page share
-  IndexPageType page_type_ __attribute__((__unused__));
+  IndexPageType page_type_;
   // Number of key & value pairs in a page
-  int size_ __attribute__((__unused__));
+  int size_;
   // Max number of key & value pairs in a page
-  int max_size_ __attribute__((__unused__));
+  int max_size_;
+  page_id_t parent_page_id_;
+  page_id_t page_id_;
 };
 
 }  // namespace bustub
