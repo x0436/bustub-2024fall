@@ -122,7 +122,10 @@ auto BufferPoolManager::Size() const -> size_t { return num_frames_; }
  *
  * @return The page ID of the newly allocated page.
  */
-auto BufferPoolManager::NewPage() -> page_id_t { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::NewPage() -> page_id_t {
+  disk_scheduler_->IncreaseDiskSpace(next_page_id_ + 1);
+  return next_page_id_.fetch_add(1);
+}
 
 /**
  * @brief Removes a page from the database, both on disk and in memory.
@@ -150,7 +153,14 @@ auto BufferPoolManager::NewPage() -> page_id_t { UNIMPLEMENTED("TODO(P1): Add im
  * @param page_id The page ID of the page we want to delete.
  * @return `false` if the page exists but could not be deleted, `true` if the page didn't exist or deletion succeeded.
  */
-auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
+  auto frame = frames_[page_table_[page_id]];
+  if (frame->pin_count_ > 0) {
+    return false;
+  }
+  disk_scheduler_->DeallocatePage(page_id);
+  return true;
+}
 
 /**
  * @brief Acquires an optional write-locked guard over a page of data. The user can specify an `AccessType` if needed.
@@ -192,7 +202,75 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("T
  * returns `std::nullopt`, otherwise returns a `WritePageGuard` ensuring exclusive and mutable access to a page's data.
  */
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  bpm_latch_->lock();
+  if (page_table_.count(page_id) > 0) {  // 1.目标页面已在内存中
+    auto frame_id = page_table_[page_id];
+    auto page_guard = WritePageGuard(page_id, frames_[frame_id], replacer_, bpm_latch_);
+    bpm_latch_->unlock();
+    return {std::move(page_guard)};
+  }
+
+  if (!free_frames_.empty()) {  // 2.目标页面不在内存, 但是有空闲frame
+    auto free_frame_id = free_frames_.front();
+    auto free_frame = frames_[free_frame_id];
+    free_frames_.pop_front();
+
+    std::promise<bool> promise;
+    auto future = promise.get_future();
+    DiskRequest req(false, free_frame->GetDataMut(), page_id, std::move(promise));
+    disk_scheduler_->Schedule(std::move(req));  // 请求从磁盘获取页面数据
+    bool success = future.get();
+    if (!success) {
+      bpm_latch_->unlock();
+      return std::nullopt;
+    }
+    page_table_[page_id] = free_frame_id;
+    free_frame->page_id_ = page_id;
+
+    auto page_guard = WritePageGuard(page_id, free_frame, replacer_, bpm_latch_);
+    bpm_latch_->unlock();
+    return {std::move(page_guard)};
+  }
+
+  auto evicted = replacer_->Evict();  // 3.不在内存中, 且没有空闲frame, 需要驱逐一个frame
+  if (evicted.has_value()) {
+    auto evicted_frame_id = evicted.value();
+    auto evicted_frame = frames_[evicted_frame_id];
+    auto old_page_id = evicted_frame->page_id_;
+
+    if (evicted_frame->is_dirty_) {
+      std::promise<bool> promise;  // 脏页刷回磁盘
+      auto future = promise.get_future();
+      DiskRequest req(true, evicted_frame->GetData(), old_page_id, std::move(promise));
+      disk_scheduler_->Schedule(std::move(req));
+
+      bool success = future.get();
+      if (!success) {
+        bpm_latch_->unlock();
+        return std::nullopt;
+      }
+    }
+    std::promise<bool> promise;
+    auto future = promise.get_future();
+    DiskRequest req(false, evicted_frame->GetDataMut(), page_id, std::move(promise));
+    disk_scheduler_->Schedule(std::move(req));
+    bool success = future.get();
+
+    if (!success) {
+      bpm_latch_->unlock();
+      return std::nullopt;
+    }
+    page_table_.erase(old_page_id);
+    page_table_[page_id] = evicted_frame_id;
+    evicted_frame->page_id_ = page_id;
+
+    auto page_guard = WritePageGuard(page_id, evicted_frame, replacer_, bpm_latch_);
+    bpm_latch_->unlock();
+    return {std::move(page_guard)};
+  }
+  // 驱逐失败, 无可驱逐页面
+  bpm_latch_->unlock();
+  return std::nullopt;
 }
 
 /**
@@ -220,7 +298,85 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
  * returns `std::nullopt`, otherwise returns a `ReadPageGuard` ensuring shared and read-only access to a page's data.
  */
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  bpm_latch_->lock();
+  if (page_table_.count(page_id) > 0) {
+    // 1.目标页面已在内存中
+    auto frame_id = page_table_[page_id];
+    auto page_guard = ReadPageGuard(page_id, frames_[frame_id], replacer_, bpm_latch_);
+    replacer_->RecordAccess(frame_id);
+    bpm_latch_->unlock();
+    return {std::move(page_guard)};
+  }
+
+  if (!free_frames_.empty()) {
+    // 2.目标页面不在内存, 但是有空闲frame
+    auto free_frame_id = free_frames_.front();
+    auto free_frame = frames_[free_frame_id];
+    free_frames_.pop_front();
+
+    std::promise<bool> promise;
+    auto future = promise.get_future();
+    DiskRequest req(false, free_frame->GetDataMut(), page_id, std::move(promise));
+    disk_scheduler_->Schedule(std::move(req));  // 请求从磁盘获取页面数据
+    bool success = future.get();
+    if (!success) {
+      bpm_latch_->unlock();
+      return std::nullopt;
+    }
+    page_table_[page_id] = free_frame_id;
+    free_frame->page_id_ = page_id;
+
+    auto page_guard = ReadPageGuard(page_id, free_frame, replacer_, bpm_latch_);
+    replacer_->RecordAccess(free_frame_id);
+    free_frame->is_dirty_ = false;
+    bpm_latch_->unlock();
+    return {std::move(page_guard)};
+  }
+
+  // 3.不在内存中, 且没有空闲frame, 需要驱逐一个frame
+  auto evicted = replacer_->Evict();
+  if (evicted.has_value()) {
+    auto evicted_frame_id = evicted.value();
+    auto evicted_frame = frames_[evicted_frame_id];
+    auto old_page_id = evicted_frame->page_id_;
+
+    if (evicted_frame->is_dirty_) {
+      // 脏页刷回磁盘
+      std::promise<bool> promise;
+      auto future = promise.get_future();
+      DiskRequest req(true, evicted_frame->GetData(), old_page_id, std::move(promise));
+      disk_scheduler_->Schedule(std::move(req));
+
+      bool success = future.get();
+      if (!success) {
+        bpm_latch_->unlock();
+        return std::nullopt;
+      }
+      evicted_frame->is_dirty_ = false;
+    }
+    std::promise<bool> promise;
+    auto future = promise.get_future();
+    DiskRequest req(false, evicted_frame->GetDataMut(), page_id, std::move(promise));
+    disk_scheduler_->Schedule(std::move(req));
+    bool success = future.get();
+
+    if (!success) {
+      bpm_latch_->unlock();
+      return std::nullopt;
+    }
+
+    page_table_.erase(old_page_id);
+    page_table_[page_id] = evicted_frame_id;
+    evicted_frame->page_id_ = page_id;
+
+    auto page_guard = ReadPageGuard(page_id, evicted_frame, replacer_, bpm_latch_);
+    replacer_->RecordAccess(evicted_frame_id);
+    bpm_latch_->unlock();
+    return {std::move(page_guard)};
+  }
+  // 驱逐失败, 无可驱逐页面
+  bpm_latch_->unlock();
+  return std::nullopt;
 }
 
 /**
@@ -289,7 +445,25 @@ auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type) -> R
  * @param page_id The page ID of the page to be flushed.
  * @return `false` if the page could not be found in the page table, otherwise `true`.
  */
-auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
+  std::scoped_lock lock(*bpm_latch_);
+  if (page_table_.count(page_id) == 0) {  // 不在内存, 返回 false
+    return false;
+  }
+
+  auto frame_id = page_table_[page_id];
+  auto frame = frames_[frame_id];
+  auto data = frame->GetData();
+  std::promise<bool> promise;
+  auto future = promise.get_future();
+  DiskRequest req(true, data, page_id, std::move(promise));
+  disk_scheduler_->Schedule(std::move(req));
+  bool success = future.get();
+  if (success) {
+    frame->is_dirty_ = false;
+  }
+  return success;
+}
 
 /**
  * @brief Flushes all page data that is in memory to disk.
@@ -301,7 +475,26 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool { UNIMPLEMENTED("TO
  *
  * TODO(P1): Add implementation
  */
-void BufferPoolManager::FlushAllPages() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void BufferPoolManager::FlushAllPages() {
+  std::scoped_lock lock(*bpm_latch_);
+  for (auto [page_id, frame_id] : page_table_) {
+    auto frame = frames_[frame_id];
+    auto data = frame->GetData();
+    if (data == nullptr) {
+      continue;
+    }
+
+    std::promise<bool> promise;
+    auto future = promise.get_future();
+    DiskRequest req(true, data, page_id, std::move(promise));
+    disk_scheduler_->Schedule(std::move(req));
+
+    bool success = future.get();
+    if (success) {
+      frame->is_dirty_ = false;
+    }
+  }
+}
 
 /**
  * @brief Retrieves the pin count of a page. If the page does not exist in memory, return `std::nullopt`.
@@ -328,7 +521,13 @@ void BufferPoolManager::FlushAllPages() { UNIMPLEMENTED("TODO(P1): Add implement
  * @return std::optional<size_t> The pin count if the page exists, otherwise `std::nullopt`.
  */
 auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  std::scoped_lock lock(*bpm_latch_);
+  if (page_table_.count(page_id) == 0) {
+    return std::nullopt;
+  }
+  auto frame_id = page_table_[page_id];
+  auto frame = frames_[frame_id];
+  return {frame->pin_count_.load()};
 }
 
 }  // namespace bustub

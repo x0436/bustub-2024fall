@@ -15,6 +15,7 @@
 #include <future>  // NOLINT
 #include <optional>
 #include <thread>  // NOLINT
+#include <utility>
 
 #include "common/channel.h"
 #include "storage/disk/disk_manager.h"
@@ -40,6 +41,9 @@ struct DiskRequest {
 
   /** Callback used to signal to the request issuer when the request has been completed. */
   std::promise<bool> callback_;
+
+  DiskRequest(bool is_write, const char *data, page_id_t page_id, std::promise<bool> callback)
+      : is_write_(is_write), data_(const_cast<char *>(data)), page_id_(page_id), callback_(std::move(callback)) {}
 };
 
 /**
