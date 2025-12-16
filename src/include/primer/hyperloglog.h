@@ -77,10 +77,12 @@ class HyperLogLog {
    * @param[in] bset - binary values of a given bitset
    * @returns leading zeros of given binary set
    */
-  auto PositionOfLeftmostOne(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t;
+  auto PositionOfLeftmostOne(const std::vector<bool> &bits) const -> uint64_t;
 
   /** @brief Cardinality value. */
   size_t cardinality_;
+  std::vector<uint8_t> buckets_;
+  int16_t b_;
 
   /** @todo (student) can add their data structures that support HyperLogLog */
 };

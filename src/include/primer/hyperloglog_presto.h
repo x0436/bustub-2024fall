@@ -11,6 +11,7 @@
 
 #include "common/util/hash_util.h"
 
+#define BITSET_CAPACITY 64
 /** @brief Dense bucket size. */
 #define DENSE_BUCKET_SIZE 4
 /** @brief Overflow bucket size. */
@@ -73,6 +74,11 @@ class HyperLogLogPresto {
     return 0;
   }
 
+  auto GetRegister(size_t i) -> size_t;
+  void SetRegister(size_t i, size_t num);
+  auto ComputeBinary(const hash_t &hash) const -> std::bitset<BITSET_CAPACITY>;
+  auto CountTrailingZeros(const std::bitset<BITSET_CAPACITY> &bits) const -> uint64_t;
+
   /** @brief Structure holding dense buckets (or also known as registers). */
   std::vector<std::bitset<DENSE_BUCKET_SIZE>> dense_bucket_;
 
@@ -81,7 +87,7 @@ class HyperLogLogPresto {
 
   /** @brief Storing cardinality value */
   uint64_t cardinality_;
-
+  int16_t b_;
   // TODO(student) - can add more data structures as required
 };
 
