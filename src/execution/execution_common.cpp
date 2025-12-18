@@ -22,10 +22,60 @@ namespace bustub {
 
 TupleComparator::TupleComparator(std::vector<OrderBy> order_bys) : order_bys_(std::move(order_bys)) {}
 
-auto TupleComparator::operator()(const SortEntry &entry_a, const SortEntry &entry_b) const -> bool { return false; }
+auto TupleComparator::operator()(const SortEntry &entry_a, const SortEntry &entry_b) const -> bool {
+  const auto &key_a = entry_a.first;
+  const auto &key_b = entry_b.first;
+  for (size_t i = 0; i < order_bys_.size(); ++i) {
+    // 没考虑无效的情况
+    const auto type = (order_bys_[i].first == OrderByType::DESC) ? OrderByType::DESC : OrderByType::ASC;
+    const auto &value_a = key_a[i];
+    const auto &value_b = key_b[i];
+
+    // 必须要考虑一方不存在的情况, 等于null表示不存在
+    const bool a_null = value_a.IsNull();
+    const bool b_null = value_b.IsNull();
+
+    // 特殊处理, 一方或两方为NULL的情况
+    if (a_null || b_null) {
+      if (a_null && b_null) {
+        continue;  // 都为null, 跳过
+      }
+      if (type == OrderByType::ASC) {
+        if (!a_null && b_null) {
+          return true;
+        }
+        if (a_null && !b_null) {
+          return false;
+        }
+      } else {  // 默认和ASC
+        if (a_null && !b_null) {
+          return true;
+        }
+        if (!a_null && b_null) {
+          return false;
+        }
+      }
+      continue;
+    }
+
+    // 都非 NULL, 按值比较
+    if (value_a.CompareLessThan(value_b) == CmpBool::CmpTrue) {
+      return type == OrderByType::ASC;
+    }
+    if (value_a.CompareGreaterThan(value_b) == CmpBool::CmpTrue) {
+      return type == OrderByType::DESC;
+    }
+    }
+  return false;
+}
 
 auto GenerateSortKey(const Tuple &tuple, const std::vector<OrderBy> &order_bys, const Schema &schema) -> SortKey {
-  return {};
+  std::vector<Value> values;
+  values.reserve(order_bys.size());
+  for (const auto &ob : order_bys) {
+    values.push_back(ob.second->Evaluate(&tuple, schema));
+  }
+  return values;
 }
 
 /**
