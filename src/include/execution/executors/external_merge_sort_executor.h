@@ -37,9 +37,8 @@ class SortPage {
 
   void Init(const Schema &schema) {
     t_size_ = schema.GetInlinedStorageSize();  // 固定长度
-    slot_size_ = t_size_;                      // 不存 RID
     cur_size_ = 0;
-    capacity_ = (BUSTUB_PAGE_SIZE - 16) / slot_size_;
+    capacity_ = (BUSTUB_PAGE_SIZE - 16) / t_size_;
   }
 
   bool InsertTuple(Tuple &tuple) {
@@ -50,11 +49,12 @@ class SortPage {
     return true;
   }
 
-  Tuple GetTuple(size_t idx) const {
+  Tuple GetTuple(size_t idx) {
     if (idx >= cur_size_) {
       throw Exception("SortPage index out of bounds");
     }
-    return Tuple(SlotPtr(idx), static_cast<uint32_t>(t_size_));
+    const char *data = SlotPtr(idx);
+    return Tuple(RID(), data, static_cast<uint32_t>(t_size_));
   }
 
   size_t GetSize() const { return cur_size_; }
@@ -79,8 +79,8 @@ class SortPage {
 
  private:
   // 用页首地址 + 相对偏移定位槽；不要用 this + 16 的未定义行为
-  inline char *Base() const { return const_cast<char *>(reinterpret_cast<const char *>(this)); }
-  inline char *SlotPtr(size_t idx) const { return Base() + 16 + idx * t_size_; }
+  inline char *Base() { return reinterpret_cast<char *>(this); }
+  inline char *SlotPtr(size_t idx) { return Base() + 16 + idx * t_size_; }
 
   size_t t_size_{0};
   size_t capacity_{0};
@@ -107,8 +107,8 @@ class MergeSortRun {
    public:
     Iterator(const MergeSortRun *run, page_id_t page_id, size_t offset, size_t index)
         : run_(run), page_id_(page_id), offset_(offset), index_(index), at_end_(false) {
-      auto guard = run_->bpm_->ReadPage(page_id_);
-      const auto *page = guard.As<SortPage>();
+      auto guard = run_->bpm_->WritePage(page_id_);
+      auto *page = guard.AsMut<SortPage>();
       tuple_ = page->GetTuple(offset_);
     }
 
@@ -134,8 +134,8 @@ class MergeSortRun {
         offset_ = 0;
       }
       // 刷新当前 tuple（仅一次读取）
-      auto g2 = run_->bpm_->ReadPage(page_id_);
-      const auto *p2 = g2.As<SortPage>();
+      auto g2 = run_->bpm_->WritePage(page_id_);
+      auto *p2 = g2.AsMut<SortPage>();
       tuple_ = p2->GetTuple(offset_);
       return *this;
     }
