@@ -23,9 +23,10 @@ template <size_t K>
 ExternalMergeSortExecutor<K>::ExternalMergeSortExecutor(ExecutorContext *exec_ctx, const SortPlanNode *plan,
                                                         std::unique_ptr<AbstractExecutor> &&child_executor)
     : AbstractExecutor(exec_ctx),
-      cmp_(plan->GetOrderBy()),
       plan_(plan),
-      child_executor_(std::move(std::move(child_executor))) {}
+      cmp_(plan->GetOrderBy()),
+      child_executor_(std::move(std::move(child_executor))),
+      bpm_(exec_ctx->GetBufferPoolManager()) {}
 
 template <size_t K>
 void ExternalMergeSortExecutor<K>::Init() {
@@ -41,8 +42,8 @@ void ExternalMergeSortExecutor<K>::Init() {
   RID child_rid;
 
   // 准备第一页与对应的 SortPage
-  page_id_t cur_pid = exec_ctx_->bpm_->NewPage();
-  auto cur_guard = exec_ctx_->bpm_->WritePage(cur_pid);
+  page_id_t cur_pid = bpm_->NewPage();
+  auto cur_guard = bpm_->WritePage(cur_pid);
   auto cur_page = cur_guard.AsMut<SortPage>();
   cur_page->Init(schema);
 
@@ -54,12 +55,12 @@ void ExternalMergeSortExecutor<K>::Init() {
       {
         std::vector<page_id_t> pages;
         pages.push_back(cur_pid);
-        runs_.emplace_back(std::move(pages), exec_ctx_->bpm_);
+        runs_.emplace_back(std::move(pages), bpm_);
       }
 
       // 新开一页继续写入
-      cur_pid = exec_ctx_->bpm_->NewPage();
-      cur_guard = exec_ctx_->bpm_->WritePage(cur_pid);
+      cur_pid = bpm_->NewPage();
+      cur_guard = bpm_->WritePage(cur_pid);
       cur_page = cur_guard.AsMut<SortPage>();
       cur_page->Init(schema);
 
@@ -74,10 +75,10 @@ void ExternalMergeSortExecutor<K>::Init() {
     cur_page->Sort(order_bys, schema);
     std::vector<page_id_t> pages;
     pages.push_back(cur_pid);
-    runs_.emplace_back(std::move(pages), exec_ctx_->bpm_);
+    runs_.emplace_back(std::move(pages), bpm_);
   } else {
     // 若最后一页没写入任何 tuple，可交还该页（可选，取决于 bpm 接口是否需要显式回收）
-    // exec_ctx_->bpm_->DeletePage(cur_pid);
+    // bpm_->DeletePage(cur_pid);
   }
 
   // 多轮两路归并，直到只剩一个 run
@@ -92,7 +93,7 @@ void ExternalMergeSortExecutor<K>::Init() {
     end_ = final_run_.End();
   } else {
     // 空输入情况下，设置为空迭代器
-    final_run_ = MergeSortRun({}, exec_ctx_->bpm_);
+    final_run_ = MergeSortRun({}, bpm_);
     it_ = final_run_.End();
     end_ = final_run_.End();
   }
@@ -101,8 +102,8 @@ void ExternalMergeSortExecutor<K>::Init() {
 template <size_t K>
 auto ExternalMergeSortExecutor<K>::MergeTwoRuns(const MergeSortRun &a, const MergeSortRun &b) -> MergeSortRun {
   // 新建输出 run 的第一页
-  auto out_pid = exec_ctx_->bpm_->NewPage();
-  auto out_guard = exec_ctx_->bpm_->WritePage(out_pid);
+  auto out_pid = bpm_->NewPage();
+  auto out_guard = bpm_->WritePage(out_pid);
   auto out_page = out_guard.AsMut<SortPage>();
   out_page->Init(plan_->OutputSchema());
 
@@ -127,8 +128,8 @@ auto ExternalMergeSortExecutor<K>::MergeTwoRuns(const MergeSortRun &a, const Mer
     Tuple to_write = pick_a ? ta : tb;
     if (!out_page->InsertTuple(to_write)) {  // 这处理真好
       // 当前页满，换新页
-      out_pid = exec_ctx_->bpm_->NewPage();
-      out_guard = exec_ctx_->bpm_->WritePage(out_pid);
+      out_pid = bpm_->NewPage();
+      out_guard = bpm_->WritePage(out_pid);
       out_page = out_guard.AsMut<SortPage>();
       out_page->Init(plan_->OutputSchema());
       out_pages.push_back(out_pid);
@@ -148,8 +149,8 @@ auto ExternalMergeSortExecutor<K>::MergeTwoRuns(const MergeSortRun &a, const Mer
   while (it_a != end_a) {
     Tuple ta = *it_a;
     if (!out_page->InsertTuple(ta)) {
-      out_pid = exec_ctx_->bpm_->NewPage();
-      out_guard = exec_ctx_->bpm_->WritePage(out_pid);
+      out_pid = bpm_->NewPage();
+      out_guard = bpm_->WritePage(out_pid);
       out_page = out_guard.AsMut<SortPage>();
       out_page->Init(plan_->OutputSchema());
       out_pages.push_back(out_pid);
@@ -163,8 +164,8 @@ auto ExternalMergeSortExecutor<K>::MergeTwoRuns(const MergeSortRun &a, const Mer
   while (it_b != end_b) {
     Tuple tb = *it_b;
     if (!out_page->InsertTuple(tb)) {
-      out_pid = exec_ctx_->bpm_->NewPage();
-      out_guard = exec_ctx_->bpm_->WritePage(out_pid);
+      out_pid = bpm_->NewPage();
+      out_guard = bpm_->WritePage(out_pid);
       out_page = out_guard.AsMut<SortPage>();
       out_page->Init(plan_->OutputSchema());
       out_pages.push_back(out_pid);
@@ -174,7 +175,7 @@ auto ExternalMergeSortExecutor<K>::MergeTwoRuns(const MergeSortRun &a, const Mer
     ++it_b;
   }
 
-  return MergeSortRun(std::move(out_pages), exec_ctx_->bpm_);
+  return MergeSortRun(std::move(out_pages), bpm_);
 }
 
 template <size_t K>
