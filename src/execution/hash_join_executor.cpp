@@ -21,7 +21,7 @@ HashJoinExecutor::HashJoinExecutor(ExecutorContext *exec_ctx, const HashJoinPlan
       plan_(plan),
       left_child_(std::move(left_child)),
       right_child_(std::move(right_child)),
-      hjht_(plan_->LeftJoinKeyExpressions()),
+      hjht_(),
       hjht_iterator_(hjht_.Begin()) {
   if (!(plan->GetJoinType() == JoinType::LEFT || plan->GetJoinType() == JoinType::INNER)) {
     // Note for Fall 2024: You ONLY need to implement left join and inner join.

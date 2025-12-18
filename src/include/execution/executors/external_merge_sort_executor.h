@@ -24,6 +24,7 @@
 #include "execution/plans/sort_plan.h"
 #include "storage/table/tuple.h"
 
+#include "buffer/buffer_pool_manager.h"
 
 namespace bustub {
 
@@ -34,12 +35,10 @@ namespace bustub {
  */
 class SortPage {
  public:
-  SortPage(page_id_t page_id) : page_id_(page_id) {}
-
   void Init(const Schema &schema) {
     t_size_ = schema.GetInlinedStorageSize();  // 固定长度
     cur_size_ = 0;
-    capacity_ = (BUSTUB_PAGE_SIZE - 16) / t_size_;
+    capacity_ = (BUSTUB_PAGE_SIZE - kHeaderSize) / t_size_;
   }
 
   bool InsertTuple(Tuple &tuple) {
@@ -79,18 +78,17 @@ class SortPage {
   }
 
  private:
-  // 用页首地址 + 相对偏移定位槽；不要用 this + 16 的未定义行为
+  static const size_t kHeaderSize;
   inline char *Base() { return reinterpret_cast<char *>(this); }
   inline const char *Base() const { return reinterpret_cast<const char *>(this); }
-  inline char *SlotPtr(size_t idx) { return Base() + 16 + idx * t_size_; }
-  inline const char *SlotPtr(size_t idx) const { return Base() + 16 + idx * t_size_; }
+  inline char *SlotPtr(size_t idx) { return Base() + kHeaderSize + idx * t_size_; }
+  inline const char *SlotPtr(size_t idx) const { return Base() + kHeaderSize + idx * t_size_; }
 
   size_t t_size_{0};
   size_t capacity_{0};
   size_t cur_size_{0};
-  page_id_t page_id_{INVALID_PAGE_ID};
 };
-
+inline const size_t SortPage::kHeaderSize = sizeof(SortPage);
 /**
  * A data structure that holds the sorted tuples as a run during external merge sort.
  * Tuples might be stored in multiple pages, and tuples are ordered both within one page
@@ -108,6 +106,7 @@ class MergeSortRun {
     friend class MergeSortRun;
 
    public:
+    Iterator() = default;
     Iterator(const MergeSortRun *run, page_id_t page_id, size_t offset, size_t index)
         : run_(run), page_id_(page_id), offset_(offset), index_(index), at_end_(false) {
       auto guard = run_->bpm_->ReadPage(page_id_);
@@ -123,23 +122,29 @@ class MergeSortRun {
      */
     auto operator++() -> Iterator & {
       if (at_end_) return *this;
-      offset_++;
-      // 读取当前页
-      auto guard = run_->bpm_->ReadPage(page_id_);
-      const auto *page = guard.As<SortPage>();
-      if (offset_ >= page->GetSize()) {
-        index_++;
-        if (index_ >= run_->pages_.size()) {
-          at_end_ = true;
+      { // 同页前进，读一次当前页
+        auto guard = run_->bpm_->ReadPage(page_id_);
+        const auto *page = guard.As<SortPage>();
+        size_t sz = page->GetSize();
+        if (offset_ + 1 < sz) {
+          offset_ += 1;
+          tuple_ = page->GetTuple(offset_);
           return *this;
         }
+      } // 释放当前页锁
+
+      // 跨页并跳过空页
+      for (index_ += 1; index_ < run_->pages_.size(); index_ += 1) {
         page_id_ = run_->pages_[index_];
         offset_ = 0;
+        auto guard = run_->bpm_->ReadPage(page_id_);
+        const auto *page = guard.As<SortPage>();
+        if (page->GetSize() > 0) {
+          tuple_ = page->GetTuple(0);
+          return *this;
+        }
       }
-      // 刷新当前 tuple（仅一次读取）
-      auto g2 = run_->bpm_->ReadPage(page_id_);
-      const auto *p2 = g2.As<SortPage>();
-      tuple_ = p2->GetTuple(offset_);
+      at_end_ = true;
       return *this;
     }
 
@@ -194,7 +199,7 @@ class MergeSortRun {
    */
   auto Begin() -> Iterator {
     if (pages_.empty()) {
-      Iterator it(this, INVALID_PAGE_ID, 0, 0);
+      Iterator it(this);
       it.at_end_ = true;
       return it;
     }
@@ -207,24 +212,13 @@ class MergeSortRun {
    * TODO: Implement this method.
    */
   auto End() -> Iterator {
-    Iterator it(this, INVALID_PAGE_ID, 0, pages_.size());
+    Iterator it(this);
     it.at_end_ = true;
     return it;
   }
 
-  auto Begin() const -> Iterator {
-    if (pages_.empty()) {
-      Iterator it(const_cast<MergeSortRun *>(this), INVALID_PAGE_ID, 0, 0);
-      it.at_end_ = true;
-      return it;
-    }
-    return Iterator(const_cast<MergeSortRun *>(this), pages_[0], 0, 0);
-  }
-  auto End() const -> Iterator {
-    Iterator it(const_cast<MergeSortRun *>(this), INVALID_PAGE_ID, 0, pages_.size());
-    it.at_end_ = true;
-    return it;
-  }
+  auto Begin() const -> Iterator { return const_cast<MergeSortRun *>(this)->Begin(); }
+  auto End() const -> Iterator { return const_cast<MergeSortRun *>(this)->End(); }
 
  private:
   /** The page IDs of the sort pages that store the sorted tuples. */
@@ -272,10 +266,9 @@ class ExternalMergeSortExecutor : public AbstractExecutor {
   std::unique_ptr<AbstractExecutor> child_executor_;
   std::vector<MergeSortRun> runs_;
   /** TODO: You will want to add your own private members here. */
-  // 最终归并完成后的唯一 run 与其迭代器
-  MergeSortRun final_run_{};
-  MergeSortRun::Iterator it_{final_run_.End()};
-  MergeSortRun::Iterator end_{final_run_.End()};
+  MergeSortRun::Iterator it_;
+  MergeSortRun::Iterator end_;
+  bool empty_{false};  // NEW: 标记是否无输出
   BufferPoolManager *bpm_;
 };
 

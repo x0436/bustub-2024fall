@@ -25,7 +25,7 @@ ExternalMergeSortExecutor<K>::ExternalMergeSortExecutor(ExecutorContext *exec_ct
     : AbstractExecutor(exec_ctx),
       plan_(plan),
       cmp_(plan->GetOrderBy()),
-      child_executor_(std::move(std::move(child_executor))),
+      child_executor_(std::move(child_executor)),
       bpm_(exec_ctx->GetBufferPoolManager()) {}
 
 template <size_t K>
@@ -47,58 +47,47 @@ void ExternalMergeSortExecutor<K>::Init() {
   auto cur_page = cur_guard.AsMut<SortPage>();
   cur_page->Init(schema);
 
-  // 不断从子算子拉取 tuple，塞满一页就排序并封装为一个 run
   while (child_executor_->Next(&child_tuple, &child_rid)) {
     if (!cur_page->InsertTuple(child_tuple)) {
-      // 当前页已满：先对页内数据排序，然后封装为一个 run
       cur_page->Sort(order_bys, schema);
       {
         std::vector<page_id_t> pages;
         pages.push_back(cur_pid);
         runs_.emplace_back(std::move(pages), bpm_);
       }
-
-      // 新开一页继续写入
       cur_pid = bpm_->NewPage();
       cur_guard = bpm_->WritePage(cur_pid);
       cur_page = cur_guard.AsMut<SortPage>();
       cur_page->Init(schema);
-
-      // 重新插入当前 tuple（新页应当能放下）
       bool ok = cur_page->InsertTuple(child_tuple);
       BUSTUB_ASSERT(ok, "InsertTuple must succeed on a fresh page");
     }
   }
 
-  // 收尾：如果最后一页里有数据，也要排序并封装为一个 run
   if (cur_page->GetSize() > 0) {
     cur_page->Sort(order_bys, schema);
     std::vector<page_id_t> pages;
     pages.push_back(cur_pid);
     runs_.emplace_back(std::move(pages), bpm_);
-  } else {
-    // 若最后一页没写入任何 tuple，可交还该页（可选，取决于 bpm 接口是否需要显式回收）
-    // bpm_->DeletePage(cur_pid);
   }
+  cur_guard.Drop(); // 归并前释放写锁，避免自死锁
 
-  // 多轮两路归并，直到只剩一个 run
+  // 归并
   while (runs_.size() > 1) {
     runs_ = MergePass(runs_);
   }
 
-  // 初始化最终 run 及成员迭代器
-  if (!runs_.empty()) {
-    final_run_ = std::move(runs_.front());
-    it_ = final_run_.Begin();
-    end_ = final_run_.End();
-  } else {
-    // 空输入情况下，设置为空迭代器
-    final_run_ = MergeSortRun({}, bpm_);
-    it_ = final_run_.End();
-    end_ = final_run_.End();
+  // NEW: 空结果保护
+  if (runs_.empty()) {
+    empty_ = true;
+    return;
   }
-}
+  empty_ = false;
 
+  // 初始化最终游标
+  it_ = runs_[0].Begin();
+  end_ = runs_[0].End();
+}
 template <size_t K>
 auto ExternalMergeSortExecutor<K>::MergeTwoRuns(const MergeSortRun &a, const MergeSortRun &b) -> MergeSortRun {
   // 新建输出 run 的第一页
@@ -194,12 +183,16 @@ auto ExternalMergeSortExecutor<K>::MergePass(const std::vector<MergeSortRun> &ru
 // 实现 Next：遍历最终唯一 run（假设 Init 后 runs_ 被归并到 1 个）
 template <size_t K>
 auto ExternalMergeSortExecutor<K>::Next(Tuple *tuple, RID *rid) -> bool {
+  // NEW: 空结果直接结束
+  if (empty_) {
+    return false;
+  }
   if (it_ == end_) {
     return false;
   }
   Tuple t = *it_;
   *tuple = t;
-  *rid = t.GetRid();
+  *rid = t.GetRid(); // 你未存 RID 时这里是默认 RID()
   ++it_;
   return true;
 }

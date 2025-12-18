@@ -59,7 +59,7 @@ struct hash<bustub::HashJoinKey> {
 namespace bustub {
 class HashJoinHashTable {
  public:
-  HashJoinHashTable(const std::vector<AbstractExpressionRef> &key_exprs) : key_exprs_{key_exprs} {}
+  // HashJoinHashTable(const std::vector<AbstractExpressionRef> &key_exprs) : key_exprs_{key_exprs} {}
 
   void InsertCombine(const HashJoinKey &join_key, const Tuple &tuple) {
     auto &val = ht_[join_key];
@@ -145,7 +145,7 @@ class HashJoinHashTable {
 
  private:
   std::unordered_map<HashJoinKey, HashJoinValue> ht_{};
-  const std::vector<AbstractExpressionRef> &key_exprs_;  // 感觉可以删掉
+  // const std::vector<AbstractExpressionRef> &key_exprs_;  // 感觉可以删掉
 };
 
 /**
