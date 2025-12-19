@@ -89,7 +89,7 @@ class SimpleAggregationHashTable {
               // 首次见到非 NULL，置为 1
               result->aggregates_[i] = ValueFactory::GetIntegerValue(1);
             } else {
-              int64_t res = result->aggregates_[i].GetAs<int64_t>();
+              auto res = result->aggregates_[i].GetAs<int64_t>();
               result->aggregates_[i] = ValueFactory::GetIntegerValue(res + 1);
             }
           }

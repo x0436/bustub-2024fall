@@ -16,8 +16,8 @@
 
 namespace bustub {
 
-static bool CollectEqualities(const AbstractExpressionRef &expr, std::vector<std::pair<uint32_t, uint32_t>> &cols,
-                              std::vector<AbstractExpressionRef> &tmp_pred_keys) {
+static auto CollectEqualities(const AbstractExpressionRef &expr, std::vector<std::pair<uint32_t, uint32_t>> &cols,
+                              std::vector<AbstractExpressionRef> &tmp_pred_keys) -> bool {
   // 1.如果是比较表达式
   if (auto cmp = dynamic_cast<ComparisonExpression *>(expr.get())) {
     // 只处理等号比较
@@ -33,12 +33,12 @@ static bool CollectEqualities(const AbstractExpressionRef &expr, std::vector<std
     auto right_const = dynamic_cast<ConstantValueExpression *>(right.get());
 
     // 只接受 col = const 或 const = col
-    if (left_col && right_const) {
+    if (left_col != nullptr && right_const != nullptr) {
       cols.emplace_back(left_col->GetTupleIdx(), left_col->GetColIdx());
       tmp_pred_keys.emplace_back(right);
       return true;
     }
-    if (right_col && left_const) {
+    if (right_col != nullptr && left_const != nullptr) {
       cols.emplace_back(right_col->GetTupleIdx(), right_col->GetColIdx());
       tmp_pred_keys.emplace_back(left);
       return true;

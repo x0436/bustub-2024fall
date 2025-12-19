@@ -15,14 +15,12 @@
 #include "optimizer/optimizer.h"
 #include "type/type_id.h"
 
-#include "execution/expressions/column_value_expression.h"
-#include "execution/expressions/comparison_expression.h"
 #include "execution/expressions/logic_expression.h"
 namespace bustub {
 
 // 出参left_cols 表示在左表的 keys
-static bool CollectEqualities(const AbstractExpressionRef &expr, std::vector<std::pair<uint32_t, uint32_t>> &left_cols,
-                              std::vector<std::pair<uint32_t, uint32_t>> &right_cols) {
+static auto CollectEqualities(const AbstractExpressionRef &expr, std::vector<std::pair<uint32_t, uint32_t>> &left_cols,
+                              std::vector<std::pair<uint32_t, uint32_t>> &right_cols) -> bool {
   // 1. 如果是比较表达式
   if (auto cmp = dynamic_cast<ComparisonExpression *>(expr.get())) {
     // 只处理等号比较
@@ -34,14 +32,14 @@ static bool CollectEqualities(const AbstractExpressionRef &expr, std::vector<std
     // 转换成列值表达式
     auto left_col = dynamic_cast<ColumnValueExpression *>(left.get());
     auto right_col = dynamic_cast<ColumnValueExpression *>(right.get());
-    if (left_col && right_col) {
+    if (left_col != nullptr && right_col != nullptr) {
       // 根据列值表达式的tuple_idx_, 判断应该放左cols还是放右cols
-      if (!left_col->GetTupleIdx()) {
+      if (left_col->GetTupleIdx() == 0U) {
         left_cols.emplace_back(left_col->GetTupleIdx(), left_col->GetColIdx());
       } else {
         right_cols.emplace_back(left_col->GetTupleIdx(), left_col->GetColIdx());
       }
-      if (!right_col->GetTupleIdx()) {
+      if (right_col->GetTupleIdx() == 0U) {
         left_cols.emplace_back(right_col->GetTupleIdx(), right_col->GetColIdx());
       } else {
         right_cols.emplace_back(right_col->GetTupleIdx(), right_col->GetColIdx());

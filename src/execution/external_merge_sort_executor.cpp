@@ -70,7 +70,7 @@ void ExternalMergeSortExecutor<K>::Init() {
     pages.push_back(cur_pid);
     runs_.emplace_back(std::move(pages), bpm_);
   }
-  cur_guard.Drop(); // 归并前释放写锁，避免自死锁
+  cur_guard.Drop();  // 归并前释放写锁，避免自死锁
 
   // 归并
   while (runs_.size() > 1) {
@@ -164,7 +164,7 @@ auto ExternalMergeSortExecutor<K>::MergeTwoRuns(const MergeSortRun &a, const Mer
     ++it_b;
   }
 
-  return MergeSortRun(std::move(out_pages), bpm_);
+  return {MergeSortRun(std::move(out_pages), bpm_)};
 }
 
 template <size_t K>
@@ -192,7 +192,7 @@ auto ExternalMergeSortExecutor<K>::Next(Tuple *tuple, RID *rid) -> bool {
   }
   Tuple t = *it_;
   *tuple = t;
-  *rid = t.GetRid(); // 你未存 RID 时这里是默认 RID()
+  *rid = t.GetRid();  // 你未存 RID 时这里是默认 RID()
   ++it_;
   return true;
 }

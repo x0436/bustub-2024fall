@@ -14,6 +14,7 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
@@ -65,7 +66,7 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
   bool left_matched_{false};
 
   auto Match(const Tuple &left_tuple, const Tuple &right_tuple) -> bool;
-  Tuple Join(const Tuple &left_tuple, const Tuple &right_tuple);
+  auto Join(const Tuple &left_tuple, const Tuple &right_tuple) -> Tuple;
 };
 
 }  // namespace bustub

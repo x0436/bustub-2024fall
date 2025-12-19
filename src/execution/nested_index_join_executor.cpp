@@ -21,11 +21,8 @@ NestIndexJoinExecutor::NestIndexJoinExecutor(ExecutorContext *exec_ctx, const Ne
     // Note for 2023 Spring: You ONLY need to implement left join and inner join.
     throw bustub::NotImplementedException(fmt::format("join type {} not supported", plan->GetJoinType()));
   }
-  if (plan->GetJoinType() == JoinType::LEFT) {
-    is_inner_ = false;
-  } else {
-    is_inner_ = true;
-  }
+
+  plan->GetJoinType() == JoinType::LEFT ? is_inner_ = false : is_inner_ = true;
 }
 
 auto NestIndexJoinExecutor::Match(const Tuple &left_tuple, const Tuple &right_tuple) -> bool {
@@ -35,7 +32,7 @@ auto NestIndexJoinExecutor::Match(const Tuple &left_tuple, const Tuple &right_tu
   return (right_key_val.CompareEquals(val) == CmpBool::CmpTrue);
 }
 
-Tuple NestIndexJoinExecutor::Join(const Tuple &left_tuple, const Tuple &right_tuple) {
+auto NestIndexJoinExecutor::Join(const Tuple &left_tuple, const Tuple &right_tuple) -> Tuple {
   std::vector<Value> values{};
   const Schema &left_schema = left_child_->GetOutputSchema();
   const Schema &right_schema = table_info_->schema_;
@@ -48,7 +45,7 @@ Tuple NestIndexJoinExecutor::Join(const Tuple &left_tuple, const Tuple &right_tu
     values.push_back(right_tuple.GetValue(&right_schema, i));
   }
 
-  return Tuple(values, &GetOutputSchema());
+  return {Tuple(values, &GetOutputSchema())};
 }
 
 void NestIndexJoinExecutor::Init() {

@@ -57,11 +57,11 @@ class NestIndexJoinExecutor : public AbstractExecutor {
   bool left_matched_{false};
 
   IndexInfo *index_info_;
-  TableInfo *table_info_; // 右表
+  TableInfo *table_info_;  // 右表
   BPlusTreeIndexForTwoIntegerColumn *tree_;
   std::unique_ptr<BPlusTreeIndexIteratorForTwoIntegerColumn> iterator_;
 
   auto Match(const Tuple &left_tuple, const Tuple &right_tuple) -> bool;
-  Tuple Join(const Tuple &left_tuple, const Tuple &right_tuple);
+  auto Join(const Tuple &left_tuple, const Tuple &right_tuple) -> Tuple;
 };
 }  // namespace bustub

@@ -27,11 +27,8 @@ NestedLoopJoinExecutor::NestedLoopJoinExecutor(ExecutorContext *exec_ctx, const 
     // Note for 2023 Fall: You ONLY need to implement left join and inner join.
     throw bustub::NotImplementedException(fmt::format("join type {} not supported", plan->GetJoinType()));
   }
-  if (plan->GetJoinType() == JoinType::LEFT) {
-    is_inner_ = false;
-  } else {
-    is_inner_ = true;
-  }
+
+  plan->GetJoinType() == JoinType::LEFT ? is_inner_ = false : is_inner_ = true;
 }
 
 void NestedLoopJoinExecutor::Init() {
@@ -55,7 +52,7 @@ auto NestedLoopJoinExecutor::Match(const Tuple &left_tuple, const Tuple &right_t
   return !val.IsNull() && val.GetAs<bool>();
 }
 
-Tuple NestedLoopJoinExecutor::Join(const Tuple &left_tuple, const Tuple &right_tuple) {
+auto NestedLoopJoinExecutor::Join(const Tuple &left_tuple, const Tuple &right_tuple) -> Tuple {
   std::vector<Value> values{};
   const Schema &left_schema = left_child_->GetOutputSchema();
   const Schema &right_schema = right_child_->GetOutputSchema();
@@ -68,7 +65,7 @@ Tuple NestedLoopJoinExecutor::Join(const Tuple &left_tuple, const Tuple &right_t
     values.push_back(right_tuple.GetValue(&right_schema, i));
   }
 
-  return Tuple(values, &GetOutputSchema());
+  return {Tuple(values, &GetOutputSchema())};
 }
 
 auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
@@ -116,7 +113,7 @@ auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       }
       *tuple = Tuple(values, &GetOutputSchema());
       *rid = RID();
-      
+
       left_matched_ = false;
       return true;
     }

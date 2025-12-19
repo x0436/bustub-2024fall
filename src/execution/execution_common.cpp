@@ -65,7 +65,7 @@ auto TupleComparator::operator()(const SortEntry &entry_a, const SortEntry &entr
     if (value_a.CompareGreaterThan(value_b) == CmpBool::CmpTrue) {
       return type == OrderByType::DESC;
     }
-    }
+  }
   return false;
 }
 

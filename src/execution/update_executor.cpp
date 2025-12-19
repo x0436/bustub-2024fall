@@ -30,7 +30,7 @@ void UpdateExecutor::Init() {
   Tuple child_tuple;
   RID child_rid;
   cnt_ = 0;
-  
+
   while (child_executor_->Next(&child_tuple, &child_rid)) {
     // 删除
     auto tuple_meta = table_heap->GetTupleMeta(child_rid);
@@ -42,8 +42,7 @@ void UpdateExecutor::Init() {
     auto child_schema = child_executor_->GetOutputSchema();
     std::vector<Value> vals;
     vals.reserve(schema->GetColumnCount());
-    for (uint32_t i = 0; i < schema->GetColumnCount(); ++i)  // 借助ai
-    {
+    for (uint32_t i = 0; i < schema->GetColumnCount(); ++i) {
       auto &expr = plan_->target_expressions_[i];
       vals.push_back(expr->Evaluate(&child_tuple, child_schema));
     }
@@ -57,18 +56,17 @@ void UpdateExecutor::Init() {
     cnt_++;
 
     // 更新该表相关的所有索引
-    for (auto index_info : catalog->GetTableIndexes(table_info->name_)) {
+    for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
       auto index = index_info->index_.get();
       std::vector<Value> key_values{};
       key_values.reserve(index->GetIndexColumnCount());
 
-      auto key1 =
-          child_tuple.KeyFromTuple(child_schema, *index->GetKeySchema(), index->GetKeyAttrs());
+      auto key1 = child_tuple.KeyFromTuple(child_schema, *index->GetKeySchema(), index->GetKeyAttrs());
       index->DeleteEntry(key1, child_rid, exec_ctx_->GetTransaction());  // 删除
 
-      auto key2 =
-          new_tuple.KeyFromTuple(*schema, *index->GetKeySchema(), index->GetKeyAttrs()); // 感觉子算子的schema和表的schema一样
-      index->InsertEntry(key2, *key_rid, exec_ctx_->GetTransaction());   // 插入
+      auto key2 = new_tuple.KeyFromTuple(*schema, *index->GetKeySchema(),
+                                         index->GetKeyAttrs());         // 感觉子算子的schema和表的schema一样
+      index->InsertEntry(key2, *key_rid, exec_ctx_->GetTransaction());  // 插入
     }
   }
 }

@@ -27,11 +27,8 @@ HashJoinExecutor::HashJoinExecutor(ExecutorContext *exec_ctx, const HashJoinPlan
     // Note for Fall 2024: You ONLY need to implement left join and inner join.
     throw bustub::NotImplementedException(fmt::format("join type {} not supported", plan->GetJoinType()));
   }
-  if (plan->GetJoinType() == JoinType::LEFT) {
-    is_inner_ = false;
-  } else {
-    is_inner_ = true;
-  }
+
+  plan->GetJoinType() == JoinType::LEFT ? is_inner_ = false : is_inner_ = true;
 }
 
 void HashJoinExecutor::Init() {
@@ -87,11 +84,11 @@ auto HashJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     return true;
   }
   // 3.右表遍历完了, 左表中存在未匹配的tuple, 只有左连接时需要处理这种情况
-  if (is_inner_ == false) {
+  if (!is_inner_) {
     while (hjht_iterator_ != hjht_.End()) {
       const auto &val = hjht_iterator_.Val();
       for (size_t i = 0; i < val.tuples_.size(); ++i) {
-        if (val.matched_[i] == false) {  // 没有匹配过
+        if (!val.matched_[i]) {  // 没有匹配过
           const Schema &ls = left_child_->GetOutputSchema();
           const Schema &rs = right_child_->GetOutputSchema();
           std::vector<Value> out;
@@ -115,7 +112,7 @@ auto HashJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   return false;
 }
 
-Tuple HashJoinExecutor::Join(const Tuple &left_tuple, const Tuple &right_tuple) {
+auto HashJoinExecutor::Join(const Tuple &left_tuple, const Tuple &right_tuple) -> Tuple {
   std::vector<Value> values{};
   const Schema &left_schema = left_child_->GetOutputSchema();
   const Schema &right_schema = right_child_->GetOutputSchema();
@@ -128,7 +125,7 @@ Tuple HashJoinExecutor::Join(const Tuple &left_tuple, const Tuple &right_tuple) 
     values.push_back(right_tuple.GetValue(&right_schema, i));
   }
 
-  return Tuple(values, &GetOutputSchema());
+  return {Tuple(values, &GetOutputSchema())};
 }
 
 }  // namespace bustub

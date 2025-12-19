@@ -35,7 +35,7 @@ void DeleteExecutor::Init() {
     cnt_++;
 
     // 更新该表相关的所有索引
-    for (auto index_info : catalog->GetTableIndexes(table_info->name_)) {
+    for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
       auto index = index_info->index_.get();
       std::vector<Value> key_values{};
       key_values.reserve(index->GetIndexColumnCount());

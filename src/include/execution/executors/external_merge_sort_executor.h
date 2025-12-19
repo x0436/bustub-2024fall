@@ -38,27 +38,29 @@ class SortPage {
   void Init(const Schema &schema) {
     t_size_ = schema.GetInlinedStorageSize();  // 固定长度
     cur_size_ = 0;
-    capacity_ = (BUSTUB_PAGE_SIZE - kHeaderSize) / t_size_;
+    capacity_ = (BUSTUB_PAGE_SIZE - K_HEADER_SIZE) / t_size_;
   }
 
-  bool InsertTuple(Tuple &tuple) {
-    if (cur_size_ >= capacity_) return false;
+  auto InsertTuple(Tuple &tuple) -> bool {
+    if (cur_size_ >= capacity_) {
+      return false;
+    }
     BUSTUB_ASSERT(tuple.GetLength() == t_size_, "Only fixed-length tuples are supported.");
     std::memcpy(SlotPtr(cur_size_), tuple.GetData(), t_size_);
     cur_size_++;
     return true;
   }
 
-  Tuple GetTuple(size_t idx) const {
+  auto GetTuple(size_t idx) const -> Tuple {
     if (idx >= cur_size_) {
       throw Exception("SortPage index out of bounds");
     }
     const char *data = SlotPtr(idx);
-    return Tuple(RID(), data, static_cast<uint32_t>(t_size_));
+    return {Tuple(RID(), data, static_cast<uint32_t>(t_size_))};
   }
 
-  size_t GetSize() const { return cur_size_; }
-  bool IsFull() const { return cur_size_ == capacity_; }
+  auto GetSize() const -> size_t { return cur_size_; }
+  auto IsFull() const -> bool { return cur_size_ == capacity_; }
 
   void Sort(const std::vector<OrderBy> &order_bys, const Schema &schema) {
     std::vector<Tuple> buf;
@@ -78,17 +80,17 @@ class SortPage {
   }
 
  private:
-  static const size_t kHeaderSize;
-  inline char *Base() { return reinterpret_cast<char *>(this); }
-  inline const char *Base() const { return reinterpret_cast<const char *>(this); }
-  inline char *SlotPtr(size_t idx) { return Base() + kHeaderSize + idx * t_size_; }
-  inline const char *SlotPtr(size_t idx) const { return Base() + kHeaderSize + idx * t_size_; }
+  static const size_t K_HEADER_SIZE;
+  inline auto Base() -> char * { return reinterpret_cast<char *>(this); }
+  inline auto Base() const -> const char * { return reinterpret_cast<const char *>(this); }
+  inline auto SlotPtr(size_t idx) -> char * { return Base() + K_HEADER_SIZE + idx * t_size_; }
+  inline auto SlotPtr(size_t idx) const -> const char * { return Base() + K_HEADER_SIZE + idx * t_size_; }
 
   size_t t_size_{0};
   size_t capacity_{0};
   size_t cur_size_{0};
 };
-inline const size_t SortPage::kHeaderSize = sizeof(SortPage);
+inline const size_t SortPage::K_HEADER_SIZE = sizeof(SortPage);
 /**
  * A data structure that holds the sorted tuples as a run during external merge sort.
  * Tuples might be stored in multiple pages, and tuples are ordered both within one page
@@ -121,8 +123,10 @@ class MergeSortRun {
      * TODO: Implement this method.
      */
     auto operator++() -> Iterator & {
-      if (at_end_) return *this;
-      { // 同页前进，读一次当前页
+      if (at_end_) {
+        return *this;
+      }
+      {  // 同页前进，读一次当前页
         auto guard = run_->bpm_->ReadPage(page_id_);
         const auto *page = guard.As<SortPage>();
         size_t sz = page->GetSize();
@@ -131,7 +135,7 @@ class MergeSortRun {
           tuple_ = page->GetTuple(offset_);
           return *this;
         }
-      } // 释放当前页锁
+      }  // 释放当前页锁
 
       // 跨页并跳过空页
       for (index_ += 1; index_ < run_->pages_.size(); index_ += 1) {
@@ -162,7 +166,9 @@ class MergeSortRun {
      * TODO: Implement this method.
      */
     auto operator==(const Iterator &other) const -> bool {
-      if (at_end_ && other.at_end_) return true;
+      if (at_end_ && other.at_end_) {
+        return true;
+      }
       return run_ == other.run_ && page_id_ == other.page_id_ && offset_ == other.offset_ && index_ == other.index_ &&
              at_end_ == other.at_end_;
     }
@@ -203,7 +209,7 @@ class MergeSortRun {
       it.at_end_ = true;
       return it;
     }
-    return Iterator(this, pages_[0], 0, 0);
+    return {Iterator(this, pages_[0], 0, 0)};
   }
 
   /**

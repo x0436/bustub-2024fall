@@ -15,6 +15,7 @@
 #include <memory>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "common/util/hash_util.h"
 #include "execution/executor_context.h"
@@ -45,7 +46,7 @@ struct HashJoinValue {
 namespace std {
 template <>
 struct hash<bustub::HashJoinKey> {
-  size_t operator()(const bustub::HashJoinKey &k) const {
+  auto operator()(const bustub::HashJoinKey &k) const -> size_t {
     size_t h = 0;
     for (const auto &v : k.join_keys_) {
       if (!v.IsNull()) {
@@ -71,15 +72,18 @@ class HashJoinHashTable {
    */
   void Clear() { ht_.clear(); }
 
-  bool FindMatches(const HashJoinKey &key, std::vector<Tuple> &out, std::vector<size_t> *indices = nullptr) const {
+  auto FindMatches(const HashJoinKey &key, std::vector<Tuple> &out, std::vector<size_t> *indices = nullptr) const
+      -> bool {
     auto it = ht_.find(key);
     if (it == ht_.end()) {  // 没找到
       out.clear();
-      if (indices) indices->clear();
+      if (indices != nullptr) {
+        indices->clear();
+      }
       return false;
     }
     out = it->second.tuples_;
-    if (indices) {  // indices是该组tuple的下标
+    if (indices != nullptr) {  // indices是该组tuple的下标
       indices->clear();
       indices->reserve(it->second.tuples_.size());
       for (size_t i = 0; i < it->second.tuples_.size(); ++i) {
@@ -195,9 +199,9 @@ class HashJoinExecutor : public AbstractExecutor {
 
   HashJoinKey current_match_key_;
   std::vector<size_t> current_match_indices_;
-  
+
   auto Match(const Tuple &left_tuple, const Tuple &right_tuple) -> bool;
-  Tuple Join(const Tuple &left_tuple, const Tuple &right_tuple);
+  auto Join(const Tuple &left_tuple, const Tuple &right_tuple) -> Tuple;
 };
 
 }  // namespace bustub
