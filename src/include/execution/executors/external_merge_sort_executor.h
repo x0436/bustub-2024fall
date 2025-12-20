@@ -63,19 +63,19 @@ class SortPage {
   auto IsFull() const -> bool { return cur_size_ == capacity_; }
 
   void Sort(const std::vector<OrderBy> &order_bys, const Schema &schema) {
-    std::vector<Tuple> buf;
+    // 优化：一次性生成排序键 + 使用 std::sort
+    std::vector<std::pair<SortKey, Tuple>> buf;
     buf.reserve(cur_size_);
     for (size_t i = 0; i < cur_size_; i++) {
-      buf.emplace_back(GetTuple(i));
+      Tuple t = GetTuple(i);
+      buf.emplace_back(GenerateSortKey(t, order_bys, schema), std::move(t));
     }
     TupleComparator cmp(order_bys);
-    std::stable_sort(buf.begin(), buf.end(), [&](const Tuple &a, const Tuple &b) {
-      auto ka = GenerateSortKey(a, order_bys, schema);
-      auto kb = GenerateSortKey(b, order_bys, schema);
-      return cmp({ka, a}, {kb, b});
+    std::sort(buf.begin(), buf.end(), [&](const auto &a, const auto &b) {
+      return cmp({a.first, a.second}, {b.first, b.second});
     });
     for (size_t i = 0; i < buf.size(); i++) {
-      std::memcpy(SlotPtr(i), buf[i].GetData(), t_size_);
+      std::memcpy(SlotPtr(i), buf[i].second.GetData(), t_size_);
     }
   }
 
@@ -102,7 +102,8 @@ class MergeSortRun {
   MergeSortRun(std::vector<page_id_t> pages, BufferPoolManager *bpm) : pages_(std::move(pages)), bpm_(bpm) {}
 
   auto GetPageCount() const -> size_t { return pages_.size(); }
-
+  auto GetPages() -> std::vector<page_id_t> & { return pages_; }
+  auto GetPages() const -> const std::vector<page_id_t> & { return pages_; }
   /** Iterator for iterating on the sorted tuples in one run. */
   class Iterator {
     friend class MergeSortRun;

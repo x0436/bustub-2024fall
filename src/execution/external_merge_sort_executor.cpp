@@ -105,45 +105,62 @@ auto ExternalMergeSortExecutor<K>::MergeTwoRuns(const MergeSortRun &a, const Mer
   auto it_b = b.Begin();
   auto end_b = b.End();
 
-  // 归并
+  // 归并（优化：缓存当前元素的排序键）
+  Tuple ta;
+  Tuple tb;
+  std::optional<SortKey> ka;
+  std::optional<SortKey> kb;
+  if (it_a != end_a) {
+    ta = *it_a;
+    ka = GenerateSortKey(ta, plan_->GetOrderBy(), plan_->OutputSchema());
+  }
+  if (it_b != end_b) {
+    tb = *it_b;
+    kb = GenerateSortKey(tb, plan_->GetOrderBy(), plan_->OutputSchema());
+  }
+
   while (it_a != end_a && it_b != end_b) {
-    Tuple ta = *it_a;
-    Tuple tb = *it_b;
-
-    const auto ka = GenerateSortKey(ta, plan_->GetOrderBy(), plan_->OutputSchema());
-    const auto kb = GenerateSortKey(tb, plan_->GetOrderBy(), plan_->OutputSchema());
-    const bool pick_a = cmp_({ka, ta}, {kb, tb});
-
+    const bool pick_a = cmp_({*ka, ta}, {*kb, tb});
     Tuple to_write = pick_a ? ta : tb;
-    if (!out_page->InsertTuple(to_write)) {  // 这处理真好
+    if (!out_page->InsertTuple(to_write)) {
       // 当前页满，换新页
       out_pid = bpm_->NewPage();
       out_guard = bpm_->WritePage(out_pid);
       out_page = out_guard.AsMut<SortPage>();
       out_page->Init(plan_->OutputSchema());
       out_pages.push_back(out_pid);
-      // 重新插入
       bool ok = out_page->InsertTuple(to_write);
       BUSTUB_ASSERT(ok, "InsertTuple must succeed on fresh page");
     }
-
     if (pick_a) {
       ++it_a;
+      if (it_a != end_a) {
+        ta = *it_a;
+        ka = GenerateSortKey(ta, plan_->GetOrderBy(), plan_->OutputSchema());
+      } else {
+        ka.reset();
+      }
     } else {
       ++it_b;
+      if (it_b != end_b) {
+        tb = *it_b;
+        kb = GenerateSortKey(tb, plan_->GetOrderBy(), plan_->OutputSchema());
+      } else {
+        kb.reset();
+      }
     }
   }
 
   // 剩余 a
   while (it_a != end_a) {
-    Tuple ta = *it_a;
-    if (!out_page->InsertTuple(ta)) {
+    Tuple t = *it_a;
+    if (!out_page->InsertTuple(t)) {
       out_pid = bpm_->NewPage();
       out_guard = bpm_->WritePage(out_pid);
       out_page = out_guard.AsMut<SortPage>();
       out_page->Init(plan_->OutputSchema());
       out_pages.push_back(out_pid);
-      bool ok = out_page->InsertTuple(ta);
+      bool ok = out_page->InsertTuple(t);
       BUSTUB_ASSERT(ok, "InsertTuple must succeed on fresh page");
     }
     ++it_a;
@@ -151,17 +168,25 @@ auto ExternalMergeSortExecutor<K>::MergeTwoRuns(const MergeSortRun &a, const Mer
 
   // 剩余 b
   while (it_b != end_b) {
-    Tuple tb = *it_b;
-    if (!out_page->InsertTuple(tb)) {
+    Tuple t = *it_b;
+    if (!out_page->InsertTuple(t)) {
       out_pid = bpm_->NewPage();
       out_guard = bpm_->WritePage(out_pid);
       out_page = out_guard.AsMut<SortPage>();
       out_page->Init(plan_->OutputSchema());
       out_pages.push_back(out_pid);
-      bool ok = out_page->InsertTuple(tb);
+      bool ok = out_page->InsertTuple(t);
       BUSTUB_ASSERT(ok, "InsertTuple must succeed on fresh page");
     }
     ++it_b;
+  }
+
+  // 关键优化：释放输入 runs 的页，避免占满缓冲池导致后续 I/O 慢/超时
+  for (auto pid : a.GetPages()) {
+    bpm_->DeletePage(pid);
+  }
+  for (auto pid : b.GetPages()) {
+    bpm_->DeletePage(pid);
   }
 
   return {MergeSortRun(std::move(out_pages), bpm_)};
@@ -180,14 +205,15 @@ auto ExternalMergeSortExecutor<K>::MergePass(const std::vector<MergeSortRun> &ru
   return next;
 }
 
-// 实现 Next：遍历最终唯一 run（假设 Init 后 runs_ 被归并到 1 个）
 template <size_t K>
 auto ExternalMergeSortExecutor<K>::Next(Tuple *tuple, RID *rid) -> bool {
-  // NEW: 空结果直接结束
   if (empty_) {
     return false;
   }
   if (it_ == end_) {
+    for (const auto &page_id : runs_[0].GetPages()) {
+      bpm_->DeletePage(page_id);
+    }
     return false;
   }
   Tuple t = *it_;
