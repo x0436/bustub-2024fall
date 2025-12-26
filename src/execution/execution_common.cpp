@@ -113,7 +113,36 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
  */
 auto CollectUndoLogs(RID rid, const TupleMeta &base_meta, const Tuple &base_tuple, std::optional<UndoLink> undo_link,
                      Transaction *txn, TransactionManager *txn_mgr) -> std::optional<std::vector<UndoLog>> {
-  UNIMPLEMENTED("not implemented");
+  /* 获得事务的时间戳 read_ts, 创建undologs数组 */
+  auto read_ts = txn->GetReadTs();
+  std::vector<UndoLog> undo_logs;
+  /*
+  获得基tuple 的时间戳, 做对比, 判断要不要遍历恢复链
+  1. 不是临时时间戳
+  1.1.undolog的时间戳 <= read_ts, 不用遍历, 将undoLog直接塞进数组里返回
+  1.2.时间戳 > read_ts, 需要遍历版本链
+
+  2. 是临时时间戳
+  2.1 临时时间戳=事务id 读自己修改过的tuple // 如何确定
+  2.2 遍历版本链
+  */
+  auto base_ts = base_meta.ts_;
+  if (base_ts < TXN_START_ID) {
+    if (base_ts > read_ts) {
+      auto is_delete = WalkUndoLogs(read_ts, undo_link.value(), undo_logs, txn_mgr);
+      if (is_delete) {
+        return std::nullopt;
+      }
+    }
+  } else {  // 临时时间戳
+    if (read_ts != txn->GetTransactionId()) {
+      auto is_delete = WalkUndoLogs(read_ts, undo_link.value(), undo_logs, txn_mgr);
+      if (is_delete) {
+        return std::nullopt;
+      }
+    }
+  }
+  return undo_logs;
 }
 
 /**
@@ -171,6 +200,23 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
   // RID=0/3 ts=txn6 <del marker> tuple=(<NULL>, <NULL>, <NULL>)
   //   txn6@0 (6, <NULL>, <NULL>) ts=2
   //   txn3@1 (7, _, _) ts=1
+}
+
+/* 需要遍历undo_link 把时间戳大于等于 read_ts 的都收集进 undologs, 如果遍历到目标log的is_dirty = true, 就返回 true */
+auto WalkUndoLogs(const timestamp_t &read_ts, const UndoLink &undo_link, std::vector<UndoLog> &undo_logs,
+                  TransactionManager *txn_mgr) -> bool {
+  /* 先用 undo_link获得第一个undolog, 加入undo_logs, 循环, 直到 undologs 的时间戳 <= read_ts,
+  如果此时 undo_log 的is_delete 为true, 返回true */
+  auto cur_link = undo_link;
+  auto cur_log = txn_mgr->GetUndoLog(cur_link);
+  auto cur_ts = cur_log.ts_;
+
+  while (cur_link.IsValid() && read_ts < cur_ts) {
+    cur_link = cur_log.prev_version_;
+    auto cur_log = txn_mgr->GetUndoLog(cur_link);
+    auto cur_ts = cur_log.ts_;
+  }
+  return cur_log.is_deleted_ ? true : false;
 }
 
 }  // namespace bustub

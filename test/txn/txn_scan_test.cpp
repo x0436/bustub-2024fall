@@ -4,7 +4,7 @@
 namespace bustub {
 
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
-TEST(TxnScanTest, DISABLED_TupleReconstructTest) {  // NOLINT
+TEST(TxnScanTest, TupleReconstructTest) {  // NOLINT
   auto schema = ParseCreateStatement("a integer,b double,c boolean");
   {
     fmt::println(stderr, "A: only base tuple");
@@ -108,13 +108,13 @@ TEST(TxnScanTest, DISABLED_CollectUndoLogTest) {  // NOLINT
   auto modify_schema = ParseCreateStatement("a integer,b double");
   auto empty_schema = ParseCreateStatement("");
   auto table_info = bustub->catalog_->CreateTable(nullptr, "maintable", *schema);
-
+  // 事务0 就插入了一个 rid0
   auto txn0 = bustub->txn_manager_->Begin();
   ASSERT_EQ(txn0->GetReadTs(), 0);
   bustub->txn_manager_->Commit(txn0);
   auto rid0 = *table_info->table_->InsertTuple(TupleMeta{txn0->GetCommitTs(), false},
                                                Tuple{{Int(1), Double(1.0), BoolNull()}, schema.get()});
-
+  // 事务1 
   auto txn1 = bustub->txn_manager_->Begin();
   ASSERT_EQ(txn1->GetReadTs(), 1);
   bustub->txn_manager_->Commit(txn1);
@@ -125,7 +125,7 @@ TEST(TxnScanTest, DISABLED_CollectUndoLogTest) {  // NOLINT
   auto undo_link1 = txn1->AppendUndoLog(
       UndoLog{false, {true, true, false}, Tuple{{Int(1), Double(1.0)}, modify_schema.get()}, txn0->GetCommitTs(), {}});
   bustub->txn_manager_->UpdateUndoLink(rid1, undo_link1, nullptr);
-
+  // 事务2
   auto txn2 = bustub->txn_manager_->Begin();
   ASSERT_EQ(txn2->GetReadTs(), 2);
   bustub->txn_manager_->Commit(txn2);
@@ -139,7 +139,7 @@ TEST(TxnScanTest, DISABLED_CollectUndoLogTest) {  // NOLINT
 
   auto rid3 = *table_info->table_->InsertTuple(TupleMeta{txn2->GetCommitTs(), false},
                                                Tuple{{Int(3), Double(3.0), BoolNull()}, schema.get()});
-
+  // 事务3
   auto txn3 = bustub->txn_manager_->Begin();
   ASSERT_EQ(txn3->GetReadTs(), 3);
   bustub->txn_manager_->Commit(txn3);
@@ -173,7 +173,7 @@ TEST(TxnScanTest, DISABLED_CollectUndoLogTest) {  // NOLINT
   auto undo_link8 = txn_to_inspect->AppendUndoLog(
       UndoLog{false, {true, true, false}, Tuple{{Int(1), Double(1.0)}, modify_schema.get()}, txn0->GetCommitTs(), {}});
   bustub->txn_manager_->UpdateUndoLink(rid8, undo_link8, nullptr);
-
+  // 事务4
   auto txn4 = bustub->txn_manager_->Begin();
   ASSERT_EQ(txn4->GetReadTs(), 4);
 
@@ -323,7 +323,7 @@ TEST(TxnScanTest, DISABLED_ScanTest) {  // NOLINT
   auto txn0 = bustub->txn_manager_->Begin();
   ASSERT_EQ(txn0->GetReadTs(), 0);
 
-  {
+  { // txn_store_1
     auto txn_store_1 = bustub->txn_manager_->Begin();
     ASSERT_EQ(txn_store_1->GetReadTs(), 0);
     bustub->txn_manager_->Commit(txn_store_1);
@@ -333,7 +333,7 @@ TEST(TxnScanTest, DISABLED_ScanTest) {  // NOLINT
   auto txn1 = bustub->txn_manager_->Begin();
   ASSERT_EQ(txn1->GetReadTs(), 1);
 
-  {
+  { // txn_store_2
     auto txn_store_2 = bustub->txn_manager_->Begin();
     ASSERT_EQ(txn_store_2->GetReadTs(), 1);
     prev_log_3 = txn_store_2->AppendUndoLog(
@@ -347,7 +347,7 @@ TEST(TxnScanTest, DISABLED_ScanTest) {  // NOLINT
   auto txn2 = bustub->txn_manager_->Begin();
   ASSERT_EQ(txn2->GetReadTs(), 2);
 
-  {
+  { // txn_store_3
     auto txn_store_3 = bustub->txn_manager_->Begin();
     ASSERT_EQ(txn_store_3->GetReadTs(), 2);
     prev_log_2 =
@@ -400,11 +400,11 @@ TEST(TxnScanTest, DISABLED_ScanTest) {  // NOLINT
 
   TxnMgrDbg("before verify scan", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
 
-  auto query = "SELECT * FROM maintable";
+  auto query = "SELECT * FROM maintable"; // 测试seqscan
   fmt::println(stderr, "A: Verify txn0");
-  WithTxn(txn0, QueryShowResult(*bustub, _var, _txn, query, AnyResult{}));
+  WithTxn(txn0, QueryShowResult(*bustub, _var, _txn, query, AnyResult{})); // 事务0, 读戳=0
   fmt::println(stderr, "B: Verify txn1");
-  WithTxn(txn1, QueryShowResult(*bustub, _var, _txn, query,
+  WithTxn(txn1, QueryShowResult(*bustub, _var, _txn, query, // 事务1, 读戳=1
                                 AnyResult{
                                     {"2", "decimal_null", "boolean_null"},
                                     {"4", "4.000000", "true"},
