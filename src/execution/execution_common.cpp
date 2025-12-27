@@ -290,8 +290,8 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
       if (log.is_deleted_) {
         fmt::println(stderr, "  txn{}@{} <del> ts={}", owner_hr, link.prev_log_idx_, log.ts_);
       } else {
-        fmt::println(stderr, "  txn{}@{} {} ts={}", owner_hr, link.prev_log_idx_,
-                     FormatUndoLogTuple(*base_schema, log), log.ts_);
+        fmt::println(stderr, "  txn{}@{} {} ts={}", owner_hr, link.prev_log_idx_, FormatUndoLogTuple(*base_schema, log),
+                     log.ts_);
       }
       link = log.prev_version_;
     }
@@ -322,12 +322,11 @@ auto WalkUndoLogs(const timestamp_t &read_ts, const UndoLink &undo_link, std::ve
   auto link = undo_link;
   while (link.IsValid()) {
     const auto log = txn_mgr->GetUndoLog(link);
-    // 到达边界：不收集该条，用其删除状态判定
+    undo_logs.push_back(log);
+    link = log.prev_version_;
     if (log.ts_ <= read_ts) {
       return log.is_deleted_;
     }
-    undo_logs.push_back(log);
-    link = log.prev_version_;
   }
   // 链结束仍未到边界，视为在 read_ts 未删除
   return false;
