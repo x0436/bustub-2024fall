@@ -158,6 +158,15 @@ auto CollectUndoLogs(RID rid, const TupleMeta &base_meta, const Tuple &base_tupl
   2.1 临时时间戳=事务id 读自己修改过的tuple // 如何确定
   2.2 遍历版本链
   */
+  // 在 read_ts 之前已删除，直接不可见
+  if (base_meta.ts_ <= read_ts && base_meta.is_deleted_) {
+    return std::nullopt;
+  }
+  // 无链或无效链：无需回溯
+  if (!undo_link.has_value() || !undo_link->IsValid()) {
+    return undo_logs;
+  }
+
   auto base_ts = base_meta.ts_;
   if (base_ts < TXN_START_ID) {
     if (base_ts > read_ts) {
@@ -166,12 +175,13 @@ auto CollectUndoLogs(RID rid, const TupleMeta &base_meta, const Tuple &base_tupl
         return std::nullopt;
       }
     }
-  } else {  // 临时时间戳
-    if (read_ts != txn->GetTransactionId()) {
-      auto is_delete = WalkUndoLogs(read_ts, undo_link.value(), undo_logs, txn_mgr);
-      if (is_delete) {
-        return std::nullopt;
-      }
+    return undo_logs;
+  }
+  // 临时时间戳
+  if (read_ts != txn->GetTransactionId()) {
+    auto is_delete = WalkUndoLogs(read_ts, undo_link.value(), undo_logs, txn_mgr);
+    if (is_delete) {
+      return std::nullopt;
     }
   }
   return undo_logs;
@@ -208,49 +218,119 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
   UNIMPLEMENTED("not implemented");
 }
 
+static auto FormatUndoLogTuple(const Schema &base_schema, const UndoLog &log) -> std::string {
+  if (log.is_deleted_) {
+    return "<del>";
+  }
+  auto undo_schema = GetUndoLogSchema(base_schema, log);
+  std::vector<std::string> parts;
+  parts.reserve(base_schema.GetColumnCount());
+  size_t j = 0;
+  for (uint32_t i = 0; i < base_schema.GetColumnCount(); i++) {
+    if (!log.modified_fields_[i]) {
+      parts.emplace_back("_");
+      continue;
+    }
+    Value v = log.tuple_.GetValue(&undo_schema, j++);
+    if (v.IsNull()) {
+      parts.emplace_back("<NULL>");
+      continue;
+    }
+    switch (base_schema.GetColumn(i).GetType()) {
+      case TypeId::INTEGER:
+        parts.emplace_back(fmt::format("{}", v.GetAs<int32_t>()));
+        break;
+      case TypeId::DECIMAL:
+        parts.emplace_back(fmt::format("{:.6f}", v.GetAs<double>()));
+        break;
+      case TypeId::BOOLEAN:
+        parts.emplace_back(v.GetAs<bool>() ? "true" : "false");
+        break;
+      default:
+        parts.emplace_back(v.ToString());
+        break;
+    }
+  }
+  return fmt::format("({})", fmt::join(parts, ", "));
+}
+
 void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const TableInfo *table_info,
                TableHeap *table_heap) {
-  // always use stderr for printing logs...
   fmt::println(stderr, "debug_hook: {}", info);
 
-  fmt::println(
-      stderr,
-      "You see this line of text because you have not implemented `TxnMgrDbg`. You should do this once you have "
-      "finished task 2. Implementing this helper function will save you a lot of time for debugging in later tasks.");
+  const Schema *base_schema = &table_info->schema_;
 
-  // We recommend implementing this function as traversing the table heap and print the version chain. An example output
-  // of our reference solution:
-  //
-  // debug_hook: before verify scan
-  // RID=0/0 ts=txn8 tuple=(1, <NULL>, <NULL>)
-  //   txn8@0 (2, _, _) ts=1
-  // RID=0/1 ts=3 tuple=(3, <NULL>, <NULL>)
-  //   txn5@0 <del> ts=2
-  //   txn3@0 (4, <NULL>, <NULL>) ts=1
-  // RID=0/2 ts=4 <del marker> tuple=(<NULL>, <NULL>, <NULL>)
-  //   txn7@0 (5, <NULL>, <NULL>) ts=3
-  // RID=0/3 ts=txn6 <del marker> tuple=(<NULL>, <NULL>, <NULL>)
-  //   txn6@0 (6, <NULL>, <NULL>) ts=2
-  //   txn3@1 (7, _, _) ts=1
+  for (auto it = table_heap->MakeIterator(); !it.IsEnd(); ++it) {
+    auto [meta, tuple] = it.GetTuple();
+    RID rid = it.GetRID();
+
+    const bool deleted = meta.is_deleted_;
+    const bool is_txn_ts = meta.ts_ >= TXN_START_ID;
+    const std::string ts_str =
+        is_txn_ts ? fmt::format("txn{}", (meta.ts_ ^ TXN_START_ID)) : fmt::format("{}", meta.ts_);
+
+    if (deleted) {
+      fmt::println(stderr, "RID={}/{} ts={} <del marker> tuple={}", rid.GetPageId(), rid.GetSlotNum(), ts_str,
+                   tuple.ToString(base_schema));
+    } else {
+      fmt::println(stderr, "RID={}/{} ts={} tuple={}", rid.GetPageId(), rid.GetSlotNum(), ts_str,
+                   tuple.ToString(base_schema));
+    }
+
+    auto opt_link = txn_mgr->GetUndoLink(rid);
+    if (!opt_link.has_value() || !opt_link->IsValid()) {
+      continue;
+    }
+
+    // 手工沿链遍历，保留每条记录的 (txn_id, log_idx)
+    auto link = opt_link.value();
+    while (link.IsValid()) {
+      auto log = txn_mgr->GetUndoLog(link);
+      auto owner_hr = (link.prev_txn_ ^ TXN_START_ID);
+      if (log.is_deleted_) {
+        fmt::println(stderr, "  txn{}@{} <del> ts={}", owner_hr, link.prev_log_idx_, log.ts_);
+      } else {
+        fmt::println(stderr, "  txn{}@{} {} ts={}", owner_hr, link.prev_log_idx_,
+                     FormatUndoLogTuple(*base_schema, log), log.ts_);
+      }
+      link = log.prev_version_;
+    }
+  }
 }
+
+// We recommend implementing this function as traversing the table heap and print the version chain. An example output
+// of our reference solution:
+//
+// debug_hook: before verify scan
+// RID=0/0 ts=txn8 tuple=(1, <NULL>, <NULL>)
+//   txn8@0 (2, _, _) ts=1
+// RID=0/1 ts=3 tuple=(3, <NULL>, <NULL>)
+//   txn5@0 <del> ts=2
+//   txn3@0 (4, <NULL>, <NULL>) ts=1
+// RID=0/2 ts=4 <del marker> tuple=(<NULL>, <NULL>, <NULL>)
+//   txn7@0 (5, <NULL>, <NULL>) ts=3
+// RID=0/3 ts=txn6 <del marker> tuple=(<NULL>, <NULL>, <NULL>)
+//   txn6@0 (6, <NULL>, <NULL>) ts=2
+//   txn3@1 (7, _, _) ts=1
 
 /* 需要遍历undo_link 把时间戳大于等于 read_ts 的都收集进 undologs, 如果遍历到目标log的is_dirty = true, 就返回 true */
 auto WalkUndoLogs(const timestamp_t &read_ts, const UndoLink &undo_link, std::vector<UndoLog> &undo_logs,
                   TransactionManager *txn_mgr) -> bool {
-  /* 先用 undo_link获得第一个undolog, 加入undo_logs, 循环, 直到 undologs 的时间戳 <= read_ts,
-  如果此时 undo_log 的is_delete 为true, 返回true */
-  auto cur_link = undo_link;
-  auto cur_log = txn_mgr->GetUndoLog(cur_link);
-  auto cur_ts = cur_log.ts_;
-  undo_logs.push_back(cur_log);
-
-  while (cur_link.IsValid() && read_ts < cur_ts) {
-    cur_link = cur_log.prev_version_;
-    cur_log = txn_mgr->GetUndoLog(cur_link);
-    cur_ts = cur_log.ts_;
-    undo_logs.push_back(cur_log);
+  if (!undo_link.IsValid()) {  // 链无效
+    return false;
   }
-  return cur_log.is_deleted_ ? true : false;
+  auto link = undo_link;
+  while (link.IsValid()) {
+    const auto log = txn_mgr->GetUndoLog(link);
+    // 到达边界：不收集该条，用其删除状态判定
+    if (log.ts_ <= read_ts) {
+      return log.is_deleted_;
+    }
+    undo_logs.push_back(log);
+    link = log.prev_version_;
+  }
+  // 链结束仍未到边界，视为在 read_ts 未删除
+  return false;
 }
 
 /* 遍历base_schema和 is_modified数组 构建新的 schema */
@@ -267,7 +347,7 @@ auto GetUndoLogSchema(const Schema &base_schema, const UndoLog &undo_log) -> Sch
   std::vector<Column> columns;
   columns.reserve(cnt);
   for (size_t i = 0; i < size; ++i) {
-    if (is_modified[i] == true){
+    if (is_modified[i] == true) {
       columns.push_back(base_schema.GetColumn(i));
     }
   }
