@@ -108,7 +108,7 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
   for (const auto &undo_log : undo_logs) {  // 逆序读取 undo_logs
     meta.is_deleted_ = undo_log.is_deleted_;
     auto is_modified = undo_log.modified_fields_;
-
+    auto new_schema = GetUndoLogSchema(*schema, undo_log);
     std::vector<Value> values{};  // 新tuple
     values.reserve(schema->GetColumnCount());
 
@@ -118,9 +118,8 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
         values.emplace_back(tuple.GetValue(schema, i));
         continue;
       }
-      /* tuple[i] =  */ /* undo_log.tuple_[idx++] */
       // 如果需要修改该列的值
-      values.emplace_back(undo_log.tuple_.GetValue(schema, j));
+      values.emplace_back(undo_log.tuple_.GetValue(&new_schema, j));
       j++;
     }  // 遍历完了构造成tuple
     tuple = Tuple(values, schema);
@@ -259,7 +258,7 @@ auto GetUndoLogSchema(const Schema &base_schema, const UndoLog &undo_log) -> Sch
   auto size = base_schema.GetColumnCount();
   auto is_modified = undo_log.modified_fields_;
   int cnt = 0;
-  for (int i = 0; i < size; ++i) {
+  for (size_t i = 0; i < size; ++i) {
     if (is_modified[i] == true) {
       cnt++;
     }
@@ -267,7 +266,7 @@ auto GetUndoLogSchema(const Schema &base_schema, const UndoLog &undo_log) -> Sch
 
   std::vector<Column> columns;
   columns.reserve(cnt);
-  for (int i = 0; i < size; ++i) {
+  for (size_t i = 0; i < size; ++i) {
     if (is_modified[i] == true){
       columns.push_back(base_schema.GetColumn(i));
     }
