@@ -85,4 +85,6 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
 
 auto WalkUndoLogs(const timestamp_t &read_ts, const UndoLink &undo_link, std::vector<UndoLog> &undo_logs, TransactionManager *txn_mgr) -> bool;
 
+auto GetUndoLogSchema(const Schema &base_schema, const UndoLog &undo_log) -> Schema;
+
 }  // namespace bustub

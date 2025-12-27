@@ -96,9 +96,6 @@ auto GenerateSortKey(const Tuple &tuple, const std::vector<OrderBy> &order_bys, 
  */
 auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const TupleMeta &base_meta,
                       const std::vector<UndoLog> &undo_logs) -> std::optional<Tuple> {
-  if (undo_logs.empty()) {
-    return base_tuple;
-  }
   /* 获得tuple每列对应的谓词 */
 
   /* 遍历undoLogs数组, 边遍历边恢复tuple */
@@ -106,34 +103,30 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
   /* 小循环 遍历tuple的每一列, 同时检查undolog的标记数组, 判断该列是否需要进行修改 */
   auto tuple = base_tuple;
   auto meta = base_meta;
+
   auto size = schema->GetColumnCount();
   for (const auto &undo_log : undo_logs) {  // 逆序读取 undo_logs
-    if (undo_log.is_deleted_ == true) {
-      meta.is_deleted_ = true;
-    }
-
+    meta.is_deleted_ = undo_log.is_deleted_;
     auto is_modified = undo_log.modified_fields_;
 
     std::vector<Value> values{};  // 新tuple
     values.reserve(schema->GetColumnCount());
 
     // 遍历tuple 和 历史记录
-    for (int i = 0, j = 0; i < size; ++i) {  // i 遍历原tuple, j遍历undo_log里的tuple
+    for (size_t i = 0, j = 0; i < size; ++i) {  // i 遍历原tuple, j遍历undo_log里的tuple
       if (is_modified[i] == false) {
         values.emplace_back(tuple.GetValue(schema, i));
         continue;
       }
       /* tuple[i] =  */ /* undo_log.tuple_[idx++] */
       // 如果需要修改该列的值
-      auto expected = schema->GetColumn(i).GetType();
       values.emplace_back(undo_log.tuple_.GetValue(schema, j));
       j++;
     }  // 遍历完了构造成tuple
     tuple = Tuple(values, schema);
     tuple.SetRid(tuple.GetRid());
   }
-  // 如果tuple被删了
-  if (base_meta.is_deleted_ == true) {
+  if (meta.is_deleted_ == true) {  // 文档要求基tuple不存在就直接返回 nullopt
     return std::nullopt;
   }
   return tuple;
@@ -250,13 +243,36 @@ auto WalkUndoLogs(const timestamp_t &read_ts, const UndoLink &undo_link, std::ve
   auto cur_link = undo_link;
   auto cur_log = txn_mgr->GetUndoLog(cur_link);
   auto cur_ts = cur_log.ts_;
+  undo_logs.push_back(cur_log);
 
   while (cur_link.IsValid() && read_ts < cur_ts) {
     cur_link = cur_log.prev_version_;
-    auto cur_log = txn_mgr->GetUndoLog(cur_link);
-    auto cur_ts = cur_log.ts_;
+    cur_log = txn_mgr->GetUndoLog(cur_link);
+    cur_ts = cur_log.ts_;
+    undo_logs.push_back(cur_log);
   }
   return cur_log.is_deleted_ ? true : false;
+}
+
+/* 遍历base_schema和 is_modified数组 构建新的 schema */
+auto GetUndoLogSchema(const Schema &base_schema, const UndoLog &undo_log) -> Schema {
+  auto size = base_schema.GetColumnCount();
+  auto is_modified = undo_log.modified_fields_;
+  int cnt = 0;
+  for (int i = 0; i < size; ++i) {
+    if (is_modified[i] == true) {
+      cnt++;
+    }
+  }
+
+  std::vector<Column> columns;
+  columns.reserve(cnt);
+  for (int i = 0; i < size; ++i) {
+    if (is_modified[i] == true){
+      columns.push_back(base_schema.GetColumn(i));
+    }
+  }
+  return Schema(columns);
 }
 
 }  // namespace bustub
