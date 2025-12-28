@@ -145,44 +145,22 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
  */
 auto CollectUndoLogs(RID rid, const TupleMeta &base_meta, const Tuple &base_tuple, std::optional<UndoLink> undo_link,
                      Transaction *txn, TransactionManager *txn_mgr) -> std::optional<std::vector<UndoLog>> {
-  /* 获得事务的时间戳 read_ts, 创建undologs数组 */
   auto read_ts = txn->GetReadTs();
   std::vector<UndoLog> undo_logs;
-  /*
-  获得基tuple 的时间戳, 做对比, 判断要不要遍历恢复链
-  1. 不是临时时间戳
-  1.1.undolog的时间戳 <= read_ts, 不用遍历, 将undoLog直接塞进数组里返回
-  1.2.时间戳 > read_ts, 需要遍历版本链
-
-  2. 是临时时间戳
-  2.1 临时时间戳=事务id 读自己修改过的tuple // 如何确定
-  2.2 遍历版本链
-  */
-  // 在 read_ts 之前已删除，直接不可见
-  if (base_meta.ts_ <= read_ts && base_meta.is_deleted_) {
-    return std::nullopt;
-  }
-  // 无链或无效链：无需回溯
-  if (!undo_link.has_value() || !undo_link->IsValid()) {
-    return undo_logs;
-  }
-
   auto base_ts = base_meta.ts_;
-  if (base_ts < TXN_START_ID) {
-    if (base_ts > read_ts) {
-      auto is_delete = WalkUndoLogs(read_ts, undo_link.value(), undo_logs, txn_mgr);
-      if (is_delete) {
-        return std::nullopt;
-      }
-    }
+  /* 最特殊情况, 如果基tuple时间戳小于等于read_ts, 或者临时时间戳等于 事务id, 说明tuple不需要重建, 直接返回空数组 */
+  if (base_ts <= read_ts || base_ts == txn->GetTransactionId()) {
     return undo_logs;
   }
-  // 临时时间戳
-  if (read_ts != txn->GetTransactionId()) {
-    auto is_delete = WalkUndoLogs(read_ts, undo_link.value(), undo_logs, txn_mgr);
-    if (is_delete) {
-      return std::nullopt;
-    }
+  if (undo_link.has_value() && undo_link->IsValid()) {
+    WalkUndoLogs(read_ts, undo_link.value(), undo_logs, txn_mgr);
+  }
+  /* 然后再判断1.时间戳 大于 read_ts 2.临时时间戳, 但是不等于 观测事务id的情况
+  如果link 不存在或者无效, 说明没必要walk了
+  如果link 有效, walk, walk完如果 logs 为空, 就返回 nullopt, 否则返回 undologs
+  */
+  if (undo_logs.empty()) {
+    return std::nullopt;
   }
   return undo_logs;
 }
@@ -313,23 +291,26 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
 //   txn6@0 (6, <NULL>, <NULL>) ts=2
 //   txn3@1 (7, _, _) ts=1
 
+/* 调用该函数的前提是 基tuple的ts > read_ts, 或者是临时时间戳 且不等于 事务id, 必须去undo链找可用于重建的undologs */
+/* 有可能找不到, 那么返回空数组, 意思是无法重建tuple */
 /* 需要遍历undo_link 把时间戳大于等于 read_ts 的都收集进 undologs, 如果遍历到目标log的is_dirty = true, 就返回 true */
-auto WalkUndoLogs(const timestamp_t &read_ts, const UndoLink &undo_link, std::vector<UndoLog> &undo_logs,
-                  TransactionManager *txn_mgr) -> bool {
+void WalkUndoLogs(const timestamp_t &read_ts, const UndoLink &undo_link, std::vector<UndoLog> &undo_logs,
+                  TransactionManager *txn_mgr){
   if (!undo_link.IsValid()) {  // 链无效
-    return false;
+    return;
   }
   auto link = undo_link;
   while (link.IsValid()) {
     const auto log = txn_mgr->GetUndoLog(link);
+    if (log.ts_ <= read_ts) {
+      undo_logs.push_back(log);
+      return; // 成功找到
+    }
     undo_logs.push_back(log);
     link = log.prev_version_;
-    if (log.ts_ <= read_ts) {
-      return log.is_deleted_;
-    }
   }
-  // 链结束仍未到边界，视为在 read_ts 未删除
-  return false;
+  // 遍历结束, 发现无法重建tuple
+  undo_logs.clear();
 }
 
 /* 遍历base_schema和 is_modified数组 构建新的 schema */
