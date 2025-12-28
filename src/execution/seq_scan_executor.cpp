@@ -33,19 +33,42 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   if (!iterator_ || iterator_->IsEnd()) {
     return false;
   }
+
+  auto txn = exec_ctx_->GetTransaction();
+  auto txn_mgr = exec_ctx_->GetTransactionManager();
+  auto catalog = exec_ctx_->GetCatalog();
+  auto table_info = catalog->GetTable(plan_->GetTableOid());
+  const Schema *schema = &table_info->schema_;
+
   while (!iterator_->IsEnd()) {
     auto pair = iterator_->GetTuple();
     auto cur_rid = iterator_->GetRID();
     ++(*iterator_);
-    if (!pair.first.is_deleted_ && filter_expr) {
-      auto value = filter_expr->Evaluate(&pair.second, GetOutputSchema());
+
+    // 获取 undo link
+    auto undo_link = txn_mgr->GetUndoLink(cur_rid);
+    // 收集 undo logs
+    auto undo_logs_opt = CollectUndoLogs(cur_rid, pair.first, pair.second, undo_link, txn, txn_mgr);
+
+    if (!undo_logs_opt.has_value()) {
+      continue;  // 对当前事务不可见，跳过
+    }
+    // 重建 tuple
+    std::optional<Tuple> visible_tuple = ReconstructTuple(schema, pair.second, pair.first, *undo_logs_opt);
+    if (!visible_tuple.has_value()) {
+      continue;  // 被删除，不可见
+    }
+
+    // 过滤
+    if (filter_expr) {
+      auto value = filter_expr->Evaluate(&(*visible_tuple), GetOutputSchema());
       if (!value.IsNull() && value.GetAs<bool>()) {
-        *tuple = pair.second;
+        *tuple = *visible_tuple;
         *rid = cur_rid;
         return true;
       }
-    } else if (!pair.first.is_deleted_) {
-      *tuple = pair.second;
+    } else {
+      *tuple = *visible_tuple;
       *rid = cur_rid;
       return true;
     }
