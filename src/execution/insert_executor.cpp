@@ -28,9 +28,12 @@ void InsertExecutor::Init() {
   Tuple child_tuple;
   RID child_rid;
   cnt_ = 0;
+  
+  auto txn = exec_ctx_->GetTransaction(); // 获取事务
+
   while (child_executor_->Next(&child_tuple, &child_rid)) {
     TupleMeta tuple_meta;
-    tuple_meta.ts_ = 0;
+    tuple_meta.ts_ = txn->GetTransactionTempTs(); // 时间戳更新为事务id
     tuple_meta.is_deleted_ = false;
     auto key_rid = table_heap->InsertTuple(tuple_meta, child_tuple, exec_ctx_->GetLockManager(),
                                            exec_ctx_->GetTransaction(), plan_->GetTableOid());
