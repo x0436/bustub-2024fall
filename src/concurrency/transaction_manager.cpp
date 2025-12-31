@@ -73,6 +73,16 @@ auto TransactionManager::Commit(Transaction *txn) -> bool {
   // 提交时间戳唯一标识一个事务, 最新提交时间戳++, 并更新当前事务的提交时间戳
   last_commit_ts_++;
   txn->commit_ts_.store(last_commit_ts_.load());
+  auto write_sets = txn->GetWriteSets();
+  for (const auto &[table_oid, rid_set] : write_sets) {
+    auto table_info = catalog_->GetTable(table_oid);
+    auto table_heap = table_info->table_.get();
+    for (const auto &rid : rid_set) {
+      auto meta = table_heap->GetTupleMeta(rid);
+      meta.ts_ = last_commit_ts_;
+      table_heap->UpdateTupleMeta(meta, rid);
+    }
+  }
 
   // 设置事务状态为已提交
   txn->state_ = TransactionState::COMMITTED;
