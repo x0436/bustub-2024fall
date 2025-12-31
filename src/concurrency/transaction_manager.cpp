@@ -40,11 +40,13 @@ auto TransactionManager::Begin(IsolationLevel isolation_level) -> Transaction * 
   auto txn_id = next_txn_id_++;
   auto txn = std::make_unique<Transaction>(txn_id, isolation_level);
   auto *txn_ref = txn.get();
+
+  // 获取当前最新已提交事务的 提交时间戳, 作为本事务的 read_ts
   auto read_ts = last_commit_ts_.load();
   txn->read_ts_.store(read_ts);
   txn_map_.insert(std::make_pair(txn_id, std::move(txn)));
-  // TODO(fall2023): set the timestamps here. Watermark updated below.
 
+  // 将该事务的 read_ts 加入 watermark
   running_txns_.AddTxn(txn_ref->read_ts_);
   return txn_ref;
 }
@@ -53,13 +55,11 @@ auto TransactionManager::VerifyTxn(Transaction *txn) -> bool { return true; }
 
 auto TransactionManager::Commit(Transaction *txn) -> bool {
   std::unique_lock<std::mutex> commit_lck(commit_mutex_);
-
-  // TODO(fall2023): acquire commit ts!
-
+  // 只有 RUNNING 状态的事务才能提交
   if (txn->state_ != TransactionState::RUNNING) {
     throw Exception("txn not in running state");
   }
-
+  // 如果是串行化隔离级别, 需要检验事务是否可提交
   if (txn->GetIsolationLevel() == IsolationLevel::SERIALIZABLE) {
     if (!VerifyTxn(txn)) {
       commit_lck.unlock();
@@ -68,15 +68,15 @@ auto TransactionManager::Commit(Transaction *txn) -> bool {
     }
   }
 
-  // TODO(fall2023): Implement the commit logic!
-
   std::unique_lock<std::shared_mutex> lck(txn_map_mutex_);
 
-  // TODO(fall2023): set commit timestamp + update last committed timestamp here.
+  // 提交时间戳唯一标识一个事务, 最新提交时间戳++, 并更新当前事务的提交时间戳
   last_commit_ts_++;
   txn->commit_ts_.store(last_commit_ts_.load());
 
+  // 设置事务状态为已提交
   txn->state_ = TransactionState::COMMITTED;
+  // 更新 running_txns_ (watermark)
   running_txns_.UpdateCommitTs(txn->commit_ts_);
   running_txns_.RemoveTxn(txn->read_ts_);
 

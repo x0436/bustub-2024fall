@@ -30,13 +30,16 @@ void InsertExecutor::Init() {
   cnt_ = 0;
   
   auto txn = exec_ctx_->GetTransaction(); // 获取事务
+  auto txn_mgr = exec_ctx_->GetTransactionManager();
 
   while (child_executor_->Next(&child_tuple, &child_rid)) {
     TupleMeta tuple_meta;
-    tuple_meta.ts_ = txn->GetTransactionTempTs(); // 时间戳更新为事务id
+    tuple_meta.ts_ = txn->GetTransactionTempTs(); // 时间戳更新为 事务临时时间戳
     tuple_meta.is_deleted_ = false;
     auto key_rid = table_heap->InsertTuple(tuple_meta, child_tuple, exec_ctx_->GetLockManager(),
                                            exec_ctx_->GetTransaction(), plan_->GetTableOid());
+    txn->AppendWriteSet(table_info->oid_, *key_rid); // 插入tuple后, 更新事务的写集合
+    txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr); // 记录该tuple到版本库
     cnt_++;
 
     // 更新该表相关的所有索引
@@ -50,6 +53,7 @@ void InsertExecutor::Init() {
       index->InsertEntry(key, *key_rid, exec_ctx_->GetTransaction());
     }
   }
+
 }
 
 auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
