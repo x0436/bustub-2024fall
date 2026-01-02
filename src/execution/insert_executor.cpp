@@ -39,7 +39,7 @@ void InsertExecutor::Init() {
     auto key_rid = table_heap->InsertTuple(tuple_meta, child_tuple, exec_ctx_->GetLockManager(),
                                            exec_ctx_->GetTransaction(), plan_->GetTableOid());
     txn->AppendWriteSet(table_info->oid_, *key_rid); // 插入tuple后, 更新事务的写集合
-    txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr); // 记录该tuple到版本库
+    txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr); // 记录该tuple到版本库, 放置一个无效的UndoLink
     cnt_++;
 
     // 更新该表相关的所有索引

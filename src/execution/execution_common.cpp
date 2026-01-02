@@ -178,7 +178,40 @@ auto CollectUndoLogs(RID rid, const TupleMeta &base_meta, const Tuple &base_tupl
  */
 auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tuple *target_tuple, timestamp_t ts,
                         UndoLink prev_version) -> UndoLog {
-  UNIMPLEMENTED("not implemented");
+  /*  */
+  std::vector<Value> values;
+  UndoLog undolog;
+  undolog.ts_ = ts;
+  undolog.prev_version_ = prev_version;
+  // undolog.is_deleted_
+
+  auto size = schema->GetColumnCount();
+  undolog.modified_fields_.resize(size, false);
+
+  std::vector<Column> columns;
+
+  size_t cnt = 0;
+  for (size_t i = 0; i < size; ++i) {
+    if (!base_tuple->GetValue(schema, i).CompareExactlyEquals(target_tuple->GetValue(schema, i)))  // 如果不等, cnt++
+    {
+      cnt++;
+    }
+  }
+  values.reserve(cnt);
+  columns.reserve(cnt);
+  for (size_t i = 0; i < size; ++i) {  // 遍历基tuple和新tuple找不同
+    if (!base_tuple->GetValue(schema, i).CompareExactlyEquals(target_tuple->GetValue(schema, i))) {
+      // 不同则把新tuple的Value塞入 values 并更新 modified 数组
+      values.emplace_back(base_tuple->GetValue(schema, i));
+      undolog.modified_fields_[i] = true;
+      columns.emplace_back(schema->GetColumn(i));
+    } else {
+      undolog.modified_fields_[i] = false;
+    }
+  }
+  Schema tuple_schema(columns);
+  undolog.tuple_ = Tuple(values, &tuple_schema);
+  return undolog;
 }
 
 /**
@@ -193,7 +226,8 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
  */
 auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const Tuple *target_tuple,
                             const UndoLog &log) -> UndoLog {
-  UNIMPLEMENTED("not implemented");
+  UndoLog new_log;
+  return new_log;
 }
 
 static auto FormatUndoLogTuple(const Schema &base_schema, const UndoLog &log) -> std::string {
@@ -295,7 +329,7 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
 /* 有可能找不到, 那么返回空数组, 意思是无法重建tuple */
 /* 需要遍历undo_link 把时间戳大于等于 read_ts 的都收集进 undologs, 如果遍历到目标log的is_dirty = true, 就返回 true */
 void WalkUndoLogs(const timestamp_t &read_ts, const UndoLink &undo_link, std::vector<UndoLog> &undo_logs,
-                  TransactionManager *txn_mgr){
+                  TransactionManager *txn_mgr) {
   if (!undo_link.IsValid()) {  // 链无效
     return;
   }
@@ -304,7 +338,7 @@ void WalkUndoLogs(const timestamp_t &read_ts, const UndoLink &undo_link, std::ve
     const auto log = txn_mgr->GetUndoLog(link);
     if (log.ts_ <= read_ts) {
       undo_logs.push_back(log);
-      return; // 成功找到
+      return;  // 成功找到
     }
     undo_logs.push_back(log);
     link = log.prev_version_;
