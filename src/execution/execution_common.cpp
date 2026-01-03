@@ -183,13 +183,22 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
   UndoLog undolog;
   undolog.ts_ = ts;
   undolog.prev_version_ = prev_version;
-  // undolog.is_deleted_
+  undolog.is_deleted_ = false;
 
   auto size = schema->GetColumnCount();
   undolog.modified_fields_.resize(size, false);
 
-  std::vector<Column> columns;
+  if (target_tuple == nullptr) { // 1.删除
+    std::fill(undolog.modified_fields_.begin(), undolog.modified_fields_.end(), true);
+    undolog.tuple_ = *base_tuple;
+    return undolog;
+  }
+  if (base_tuple == nullptr) { // 2.插入
+    undolog.is_deleted_ = true;
+    return undolog;
+  }
 
+  std::vector<Column> columns;
   size_t cnt = 0;
   for (size_t i = 0; i < size; ++i) {
     if (!base_tuple->GetValue(schema, i).CompareExactlyEquals(target_tuple->GetValue(schema, i)))  // 如果不等, cnt++
