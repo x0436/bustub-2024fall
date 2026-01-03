@@ -188,12 +188,12 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
   auto size = schema->GetColumnCount();
   undolog.modified_fields_.resize(size, false);
 
-  if (target_tuple == nullptr) { // 1.删除
+  if (target_tuple == nullptr) {  // 1.删除
     std::fill(undolog.modified_fields_.begin(), undolog.modified_fields_.end(), true);
     undolog.tuple_ = *base_tuple;
     return undolog;
   }
-  if (base_tuple == nullptr) { // 2.插入
+  if (base_tuple == nullptr) {  // 2.插入
     undolog.is_deleted_ = true;
     return undolog;
   }
@@ -236,6 +236,80 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
 auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const Tuple *target_tuple,
                             const UndoLog &log) -> UndoLog {
   UndoLog new_log;
+  auto size = schema->GetColumnCount();
+  new_log.modified_fields_.resize(size, false);
+
+  std::vector<uint32_t> idxs;
+  for (size_t i = 0; i < size; ++i) {
+    if (log.modified_fields_[i] == true) {
+      idxs.push_back(i);
+    }
+  }
+  auto schema_1 = Schema::CopySchema(schema, idxs);  // 旧log里tuple的schema
+  std::vector<Value> values;
+  values.reserve(size);  // 因为不确定会有多大, 所以设这么大
+
+  if (target_tuple == nullptr) {  // 1.删除
+    std::fill(new_log.modified_fields_.begin(), new_log.modified_fields_.end(), true);
+    for (size_t i = 0, j = 0; i < size; ++i) {
+      if (log.modified_fields_[i] == false) {
+        values.emplace_back(base_tuple->GetValue(schema, i));
+        continue;
+      }
+      values.emplace_back(log.tuple_.GetValue(&schema_1, j));
+      j++;
+    }
+    new_log.tuple_ = Tuple(values, schema);
+    new_log.is_deleted_ = log.is_deleted_;
+    return new_log;
+  }
+
+  for (size_t i = 0, idx = 0; i < size; ++i) {  // 遍历base_tuple 和 target_tuple
+    if (target_tuple->GetValue(schema, i).CompareExactlyEquals(
+            base_tuple->GetValue(schema, i))) {  // 第二阶段没有进行修改
+      if (!log.modified_fields_[i]) {            // 1.
+        new_log.modified_fields_[i] = false;
+      } else {  // 2.
+        new_log.modified_fields_[i] = true;
+        values.emplace_back(log.tuple_.GetValue(&schema_1, idx));
+        idx++;
+      }
+    } else {                                   // 第二阶段进行了修改
+      if (log.modified_fields_[i] == false) {  // 首次修改
+        new_log.modified_fields_[i] = true;
+        values.emplace_back(base_tuple->GetValue(schema, i));
+      } else {  // 如果不是首次修改, 需要判断是否改回原值了, 这里做简单处理,
+        // 简单处理
+        // new_log.modified_fields_[i] = true;
+        // values.emplace_back(log.tuple_.GetValue(&schema_1, idx));
+        // idx++;
+        // 复杂处理
+        Value old_value = log.tuple_.GetValue(&schema_1, idx);
+        if (target_tuple->GetValue(schema, i).CompareExactlyEquals(old_value)) {
+          // 改回去了
+          new_log.modified_fields_[i] = false;
+        } else {
+          new_log.modified_fields_[i] = true;
+          values.emplace_back(old_value);
+        }
+        idx++;
+      }
+    }
+  }
+
+  // 遍历log的modified制作schema
+  idxs.clear();
+  for (size_t i = 0; i < size; ++i) {
+    if (new_log.modified_fields_[i] == true) {
+      idxs.push_back(i);
+    }
+  }
+  auto schema_2 = Schema::CopySchema(schema, idxs);
+
+  new_log.is_deleted_ = log.is_deleted_;
+  new_log.ts_ = log.ts_;
+  new_log.prev_version_ = log.prev_version_;
+  new_log.tuple_ = Tuple(values, &schema_2);
   return new_log;
 }
 

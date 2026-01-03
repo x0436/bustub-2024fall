@@ -255,9 +255,9 @@ TEST(TxnExecutorTest, GenerateUndoLogTest) {
     auto schema = ParseCreateStatement("a integer,b double,c boolean");
     auto partial_schema = ParseCreateStatement("");
     auto intermediate_tuple = Tuple{{Int(0), Double(0.0), Bool(false)}, schema.get()};
-    auto undo_log = GenerateNewUndoLog(schema.get(), nullptr, &intermediate_tuple, 0, {});
+    auto undo_log = GenerateNewUndoLog(schema.get(), nullptr, &intermediate_tuple, 0, {}); // Insert
     auto target_tuple = Tuple{{Int(0), Double(1.0), Bool(false)}, schema.get()};
-    auto updated_undo_log = GenerateUpdatedUndoLog(schema.get(), &intermediate_tuple, &target_tuple, undo_log);
+    auto updated_undo_log = GenerateUpdatedUndoLog(schema.get(), &intermediate_tuple, &target_tuple, undo_log); // Update
 
     auto tuple = ReconstructTuple(schema.get(), target_tuple, {0, false}, {updated_undo_log});
     ASSERT_FALSE(tuple.has_value());
@@ -269,8 +269,8 @@ TEST(TxnExecutorTest, GenerateUndoLogTest) {
     auto schema = ParseCreateStatement("a integer,b double,c boolean");
     auto partial_schema = ParseCreateStatement("");
     auto intermediate_tuple = Tuple{{Int(0), Double(0.0), Bool(false)}, schema.get()};
-    auto undo_log = GenerateNewUndoLog(schema.get(), nullptr, &intermediate_tuple, 0, {});
-    auto updated_undo_log = GenerateUpdatedUndoLog(schema.get(), &intermediate_tuple, nullptr, undo_log);
+    auto undo_log = GenerateNewUndoLog(schema.get(), nullptr, &intermediate_tuple, 0, {}); // Insert
+    auto updated_undo_log = GenerateUpdatedUndoLog(schema.get(), &intermediate_tuple, nullptr, undo_log); // Delete
 
     auto tuple = ReconstructTuple(schema.get(), intermediate_tuple, {0, true}, {updated_undo_log});
     ASSERT_FALSE(tuple.has_value());
