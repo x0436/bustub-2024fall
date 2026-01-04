@@ -25,11 +25,13 @@ void DeleteExecutor::Init() {
   auto catalog = exec_ctx_->GetCatalog();
   auto table_info = catalog->GetTable(plan_->GetTableOid());
   auto table_heap = table_info->table_.get();
+  auto txn = exec_ctx_->GetTransaction();
   Tuple child_tuple;
   RID child_rid;
   cnt_ = 0;
   while (child_executor_->Next(&child_tuple, &child_rid)) {
     auto tuple_meta = table_heap->GetTupleMeta(child_rid);
+    IsWriteWriteConflict(txn, tuple_meta); // 在修改前检查是否有写写冲突
     tuple_meta.is_deleted_ = true;
     table_heap->UpdateTupleMeta(tuple_meta, child_rid);
     cnt_++;

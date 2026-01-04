@@ -88,5 +88,5 @@ void WalkUndoLogs(const timestamp_t &read_ts, const UndoLink &undo_link, std::ve
 
 auto GetUndoLogSchema(const Schema &base_schema, const UndoLog &undo_log) -> Schema;
 
-auto IsWriteWriteConflict(Transaction *txn, TupleMeta meta) -> bool;
+void IsWriteWriteConflict(Transaction *txn, TupleMeta meta);
 }  // namespace bustub
