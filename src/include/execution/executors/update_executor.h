@@ -22,6 +22,7 @@
 #include "storage/table/tuple.h"
 #include "type/value_factory.h"
 #include "execution/execution_common.h"
+#include "concurrency/transaction_manager.h"
 
 namespace bustub {
 

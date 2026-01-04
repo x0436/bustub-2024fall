@@ -26,12 +26,34 @@ void DeleteExecutor::Init() {
   auto table_info = catalog->GetTable(plan_->GetTableOid());
   auto table_heap = table_info->table_.get();
   auto txn = exec_ctx_->GetTransaction();
+  auto txn_mgr = exec_ctx_->GetTransactionManager();
+  auto schema = child_executor_->GetOutputSchema();
+
   Tuple child_tuple;
   RID child_rid;
   cnt_ = 0;
   while (child_executor_->Next(&child_tuple, &child_rid)) {
     auto tuple_meta = table_heap->GetTupleMeta(child_rid);
-    IsWriteWriteConflict(txn, tuple_meta); // 在修改前检查是否有写写冲突
+    IsWriteWriteConflict(txn, tuple_meta);  // 在修改前检查是否有写写冲突
+    // 没有写写冲突
+    auto undolink_opt = txn_mgr->GetUndoLink(child_rid);
+    UndoLink undolink = undolink_opt.has_value() ? undolink_opt.value() : UndoLink();
+    auto undolog_opt = txn_mgr->GetUndoLogOptional(undolink);
+    bool has_log = undolog_opt.has_value();
+    auto ts = tuple_meta.ts_;
+    UndoLog undolog;
+    if (!has_log || undolink.prev_txn_ != txn->GetTransactionId()) {  // 如果没有undolog或者undolog不是当前事务
+      undolog = GenerateNewUndoLog(&schema, &child_tuple, nullptr, ts, undolink);
+    } else {
+      undolog = GenerateUpdatedUndoLog(&schema, &child_tuple, nullptr, undolog_opt.value());
+      // 更新版本链里的undolog
+    }
+    // 添加到事务的undolog数组并更新该tuple对应的undolink
+    auto new_link = txn->AppendUndoLog(undolog);
+    txn_mgr->UpdateUndoLink(child_rid, new_link);
+    txn->AppendWriteSet(table_info->oid_, child_rid);
+
+    tuple_meta.ts_ = txn->GetTransactionTempTs();
     tuple_meta.is_deleted_ = true;
     table_heap->UpdateTupleMeta(tuple_meta, child_rid);
     cnt_++;
@@ -42,8 +64,7 @@ void DeleteExecutor::Init() {
       std::vector<Value> key_values{};
       key_values.reserve(index->GetIndexColumnCount());
 
-      auto key =
-          child_tuple.KeyFromTuple(child_executor_->GetOutputSchema(), *index->GetKeySchema(), index->GetKeyAttrs());
+      auto key = child_tuple.KeyFromTuple(schema, *index->GetKeySchema(), index->GetKeyAttrs());
       index->DeleteEntry(key, child_rid, exec_ctx_->GetTransaction());
     }
   }

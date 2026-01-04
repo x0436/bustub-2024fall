@@ -21,6 +21,7 @@
 #include "execution/plans/delete_plan.h"
 #include "storage/table/tuple.h"
 #include "execution/execution_common.h"
+#include "concurrency/transaction_manager.h"
 
 namespace bustub {
 
