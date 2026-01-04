@@ -451,4 +451,11 @@ auto GetUndoLogSchema(const Schema &base_schema, const UndoLog &undo_log) -> Sch
   return Schema(columns);
 }
 
+auto IsWriteWriteConflict(Transaction *txn, const TupleMeta &meta) -> bool {
+  if (meta.ts_ > TXN_START_ID) {
+    return meta.ts_ == txn->GetTransactionId();
+  }
+  return txn->GetReadTs() >= meta.ts_;
+}
+
 }  // namespace bustub
