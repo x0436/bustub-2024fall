@@ -57,15 +57,18 @@ void UpdateExecutor::Init() {
     }
     Tuple new_tuple(vals, &schema);
 
-    if (!has_log || undolink.prev_txn_ != txn->GetTransactionId()) {  // 如果没有undolog或者undolog不是当前事务
-      undolog = GenerateNewUndoLog(&schema, &child_tuple, &new_tuple, ts, undolink);
-    } else {
-      undolog = GenerateUpdatedUndoLog(&schema, &child_tuple, &new_tuple, undolog_opt.value());
-      // 更新版本链里的undolog
+    bool is_current_txn_insert =
+        (undolink.prev_txn_ == INVALID_TXN_ID) && (tuple_meta.ts_ == txn->GetTransactionTempTs());
+
+    if (!is_current_txn_insert) {
+      if (!has_log || undolink.prev_txn_ != txn->GetTransactionId()) {
+        undolog = GenerateNewUndoLog(&schema, &child_tuple, &new_tuple, ts, undolink);
+      } else {
+        undolog = GenerateUpdatedUndoLog(&schema, &child_tuple, &new_tuple, undolog_opt.value());
+      }
+      auto new_link = txn->AppendUndoLog(undolog);
+      txn_mgr->UpdateUndoLink(child_rid, new_link);
     }
-    // 添加到事务的undolog数组并更新该tuple对应的undolink
-    auto new_link = txn->AppendUndoLog(undolog);
-    txn_mgr->UpdateUndoLink(child_rid, new_link);
     txn->AppendWriteSet(table_info->oid_, child_rid);
 
     tuple_meta.ts_ = txn->GetTransactionTempTs();
@@ -84,7 +87,7 @@ void UpdateExecutor::Init() {
       index->DeleteEntry(key1, child_rid, exec_ctx_->GetTransaction());  // 删除
 
       auto key2 = new_tuple.KeyFromTuple(table_schema, *index->GetKeySchema(),
-                                         index->GetKeyAttrs());         // 感觉子算子的schema和表的schema一样
+                                         index->GetKeyAttrs());          // 感觉子算子的schema和表的schema一样
       index->InsertEntry(key2, child_rid, exec_ctx_->GetTransaction());  // 插入
     }
   }
