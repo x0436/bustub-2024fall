@@ -261,39 +261,26 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
     }
     new_log.tuple_ = Tuple(values, schema);
     new_log.is_deleted_ = log.is_deleted_;
+    new_log.ts_ = log.ts_;                      // 保留原 ts
+    new_log.prev_version_ = log.prev_version_;  // 保留原版本链
     return new_log;
   }
 
-  for (size_t i = 0, idx = 0; i < size; ++i) {  // 遍历base_tuple 和 target_tuple
-    if (target_tuple->GetValue(schema, i).CompareExactlyEquals(
-            base_tuple->GetValue(schema, i))) {  // 第二阶段没有进行修改
-      if (!log.modified_fields_[i]) {            // 1.
-        new_log.modified_fields_[i] = false;
-      } else {  // 2.
-        new_log.modified_fields_[i] = true;
-        values.emplace_back(log.tuple_.GetValue(&schema_1, idx));
-        idx++;
-      }
-    } else {                                   // 第二阶段进行了修改
-      if (log.modified_fields_[i] == false) {  // 首次修改
-        new_log.modified_fields_[i] = true;
-        values.emplace_back(base_tuple->GetValue(schema, i));
-      } else {  // 如果不是首次修改, 需要判断是否改回原值了, 这里做简单处理,
-        // 简单处理
-        // new_log.modified_fields_[i] = true;
-        // values.emplace_back(log.tuple_.GetValue(&schema_1, idx));
-        // idx++;
-        // 复杂处理
-        Value old_value = log.tuple_.GetValue(&schema_1, idx);
-        if (target_tuple->GetValue(schema, i).CompareExactlyEquals(old_value)) {
-          // 改回去了
-          new_log.modified_fields_[i] = false;
-        } else {
-          new_log.modified_fields_[i] = true;
-          values.emplace_back(old_value);
-        }
-        idx++;
-      }
+  // 累积修改列：new = old || now_modified
+  for (size_t i = 0, idx = 0; i < size; ++i) {
+    const bool old_mod = log.modified_fields_[i];
+    const bool now_mod = !target_tuple->GetValue(schema, i).CompareExactlyEquals(base_tuple->GetValue(schema, i));
+    const bool new_mod = old_mod || now_mod;
+    new_log.modified_fields_[i] = new_mod;
+    if (!new_mod) {
+      continue;
+    }
+    // 优先使用旧 undo log 中的值；若旧未修改则保存 base 的值
+    if (old_mod) {
+      values.emplace_back(log.tuple_.GetValue(&schema_1, idx));
+      idx++;
+    } else {
+      values.emplace_back(base_tuple->GetValue(schema, i));
     }
   }
 

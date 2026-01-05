@@ -47,12 +47,15 @@ void DeleteExecutor::Init() {
 
     if (!is_current_txn_insert) {
       if (!has_log || undolink.prev_txn_ != txn->GetTransactionId()) {
+        // 第一次 delete，追加 undo log
         undolog = GenerateNewUndoLog(&schema, &child_tuple, nullptr, ts, undolink);
+        auto new_link = txn->AppendUndoLog(undolog);
+        txn_mgr->UpdateUndoLink(child_rid, new_link);
       } else {
+        // 已有 undo log，合并并覆盖
         undolog = GenerateUpdatedUndoLog(&schema, &child_tuple, nullptr, undolog_opt.value());
+        txn->ModifyUndoLog(undolink.prev_log_idx_, undolog);
       }
-      auto new_link = txn->AppendUndoLog(undolog);
-      txn_mgr->UpdateUndoLink(child_rid, new_link);
     }
     txn->AppendWriteSet(table_info->oid_, child_rid);
 
