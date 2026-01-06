@@ -105,6 +105,46 @@ void TransactionManager::Abort(Transaction *txn) {
   running_txns_.RemoveTxn(txn->read_ts_);
 }
 
-void TransactionManager::GarbageCollection() { UNIMPLEMENTED("not implemented"); }
+void TransactionManager::GarbageCollection() {
+  // 1. 遍历所有tuple的版本链, 收集符合条件的UndoLink对应的事务id
+  std::unordered_set<txn_id_t> needed_txns;  // 记录不用删的txns
+  auto read_ts = running_txns_.GetWatermark();
 
+  for (auto [page_id, version_info] : version_info_) {
+    for (auto [slot, undo_link] : version_info->prev_link_) {
+      // TODO: 获取tuple meta, 看看基tuple的(提交)时间戳是否小于等于read_ts, 如果满足, 则不用遍历版本链了
+      auto table_info = catalog_->GetTable(page_id);
+      auto table_heap = table_info->table_.get();
+      auto meta = table_heap->GetTupleMeta(RID(page_id, slot));
+      if (meta.ts_ <= read_ts) {
+        continue;
+      }
+
+      if (!undo_link.IsValid()) {  // 链无效
+        continue;
+      }
+      auto link = undo_link;
+      while (link.IsValid()) {
+        const auto log = GetUndoLog(link);
+        if (log.ts_ <= read_ts) {
+          needed_txns.insert(link.prev_txn_);
+          break; // 该条版本链遍历完毕
+        }
+        needed_txns.insert(link.prev_txn_);
+        link = log.prev_version_;
+      }
+    }
+  }
+  // 2. 遍历所有事务, 不在txns的事务均删除
+  std::vector<txn_id_t> to_delete;
+  for (const auto &[txn_id, txn] : txn_map_) {
+    if (!needed_txns.count(txn_id) &&
+        (txn->state_ == TransactionState::COMMITTED || txn->state_ == TransactionState::ABORTED)) {
+      to_delete.push_back(txn_id);
+    }
+  }
+  for (auto txn_id : to_delete) {
+    txn_map_.erase(txn_id);
+  }
+}
 }  // namespace bustub

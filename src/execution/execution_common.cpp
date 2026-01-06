@@ -367,6 +367,12 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
     // 手工沿链遍历，保留每条记录的 (txn_id, log_idx)
     auto link = opt_link.value();
     while (link.IsValid()) {
+      {
+        std::shared_lock<std::shared_mutex> l(txn_mgr->txn_map_mutex_);
+        if (txn_mgr->txn_map_.count(link.prev_txn_) == 0) {
+          break;
+        }
+      }
       auto log = txn_mgr->GetUndoLog(link);
       auto owner_hr = (link.prev_txn_ ^ TXN_START_ID);
       if (log.is_deleted_) {
