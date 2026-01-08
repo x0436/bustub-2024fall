@@ -15,12 +15,12 @@
 #include <memory>
 #include <vector>
 
+#include "concurrency/transaction_manager.h"
+#include "execution/execution_common.h"
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
 #include "execution/plans/seq_scan_plan.h"
 #include "storage/table/tuple.h"
-#include "execution/execution_common.h"
-#include "concurrency/transaction_manager.h"
 
 namespace bustub {
 

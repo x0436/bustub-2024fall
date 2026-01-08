@@ -114,7 +114,7 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
 
     // 遍历tuple 和 历史记录
     for (size_t i = 0, j = 0; i < size; ++i) {  // i 遍历原tuple, j遍历undo_log里的tuple
-      if (is_modified[i] == false) {
+      if (!is_modified[i]) {
         values.emplace_back(tuple.GetValue(schema, i));
         continue;
       }
@@ -125,7 +125,7 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
     tuple = Tuple(values, schema);
     tuple.SetRid(tuple.GetRid());
   }
-  if (meta.is_deleted_ == true) {  // 文档要求基tuple不存在就直接返回 nullopt
+  if (meta.is_deleted_) {  // 文档要求基tuple不存在就直接返回 nullopt
     return std::nullopt;
   }
   return tuple;
@@ -201,8 +201,8 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
   std::vector<Column> columns;
   size_t cnt = 0;
   for (size_t i = 0; i < size; ++i) {
-    if (!base_tuple->GetValue(schema, i).CompareExactlyEquals(target_tuple->GetValue(schema, i)))  // 如果不等, cnt++
-    {
+    if (!base_tuple->GetValue(schema, i).CompareExactlyEquals(target_tuple->GetValue(schema, i))) {
+      // 如果不等, cnt++
       cnt++;
     }
   }
@@ -241,7 +241,7 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
 
   std::vector<uint32_t> idxs;
   for (size_t i = 0; i < size; ++i) {
-    if (log.modified_fields_[i] == true) {
+    if (log.modified_fields_[i]) {
       idxs.push_back(i);
     }
   }
@@ -252,7 +252,7 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
   if (target_tuple == nullptr) {  // 1.删除
     std::fill(new_log.modified_fields_.begin(), new_log.modified_fields_.end(), true);
     for (size_t i = 0, j = 0; i < size; ++i) {
-      if (log.modified_fields_[i] == false) {
+      if (!log.modified_fields_[i]) {
         values.emplace_back(base_tuple->GetValue(schema, i));
         continue;
       }
@@ -287,7 +287,7 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
   // 遍历log的modified制作schema
   idxs.clear();
   for (size_t i = 0; i < size; ++i) {
-    if (new_log.modified_fields_[i] == true) {
+    if (new_log.modified_fields_[i]) {
       idxs.push_back(i);
     }
   }
@@ -429,7 +429,7 @@ auto GetUndoLogSchema(const Schema &base_schema, const UndoLog &undo_log) -> Sch
   auto is_modified = undo_log.modified_fields_;
   int cnt = 0;
   for (size_t i = 0; i < size; ++i) {
-    if (is_modified[i] == true) {
+    if (is_modified[i]) {
       cnt++;
     }
   }
@@ -437,7 +437,7 @@ auto GetUndoLogSchema(const Schema &base_schema, const UndoLog &undo_log) -> Sch
   std::vector<Column> columns;
   columns.reserve(cnt);
   for (size_t i = 0; i < size; ++i) {
-    if (is_modified[i] == true) {
+    if (is_modified[i]) {
       columns.push_back(base_schema.GetColumn(i));
     }
   }
@@ -448,12 +448,12 @@ void IsWriteWriteConflict(Transaction *txn, TupleMeta meta) {
   if (meta.ts_ > TXN_START_ID) {
     if (meta.ts_ != txn->GetTransactionId()) {
       txn->SetTainted();
-      throw ExecutionException("");
+      throw ExecutionException("WriteWriteConflict");
     }
   } else {
     if (txn->GetReadTs() < meta.ts_) {
       txn->SetTainted();
-      throw ExecutionException("");
+      throw ExecutionException("WriteWriteConflict");
     }
   }
 }

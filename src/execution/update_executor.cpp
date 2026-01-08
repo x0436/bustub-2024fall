@@ -90,7 +90,7 @@ void UpdateExecutor::Init() {
       index->DeleteEntry(key1, child_rid, exec_ctx_->GetTransaction());  // 删除
 
       auto key2 = new_tuple.KeyFromTuple(table_schema, *index->GetKeySchema(),
-                                         index->GetKeyAttrs());          // 感觉子算子的schema和表的schema一样
+                                         index->GetKeyAttrs());  // 感觉子算子的schema和表的schema一样
       index->InsertEntry(key2, child_rid, exec_ctx_->GetTransaction());  // 插入
     }
   }

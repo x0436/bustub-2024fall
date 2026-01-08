@@ -11,7 +11,7 @@ auto Watermark::AddTxn(timestamp_t read_ts) -> void {
   auto it = current_reads_.find(read_ts);
   if (it != current_reads_.end()) {
     it->second++;
-  } else { // 没找到
+  } else {  // 没找到
     current_reads_.insert({read_ts, 1});
   }
   set_.insert(read_ts);

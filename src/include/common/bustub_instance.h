@@ -258,7 +258,7 @@ class BusTubInstance {
    * Execute a SQL query in the BusTub instance with provided txn.
    */
   auto ExecuteSqlTxn(const std::string &sql, ResultWriter &writer, Transaction *txn,
-                    std::shared_ptr<CheckOptions> check_options = nullptr) -> bool;
+                     std::shared_ptr<CheckOptions> check_options = nullptr) -> bool;
 
   /** Enable managed txn mode on this BusTub instance, allowing statements like `BEGIN`. */
   void EnableManagedTxn();

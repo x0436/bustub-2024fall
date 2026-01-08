@@ -112,7 +112,7 @@ void TransactionManager::GarbageCollection() {
 
   for (auto [page_id, version_info] : version_info_) {
     for (auto [slot, undo_link] : version_info->prev_link_) {
-      // TODO: 获取tuple meta, 看看基tuple的(提交)时间戳是否小于等于read_ts, 如果满足, 则不用遍历版本链了
+      // 获取tuple meta, 看看基tuple的(提交)时间戳是否小于等于read_ts, 如果满足, 则不用遍历版本链了
       auto table_info = catalog_->GetTable(page_id);
       auto table_heap = table_info->table_.get();
       auto meta = table_heap->GetTupleMeta(RID(page_id, slot));
@@ -128,7 +128,7 @@ void TransactionManager::GarbageCollection() {
         const auto log = GetUndoLog(link);
         if (log.ts_ <= read_ts) {
           needed_txns.insert(link.prev_txn_);
-          break; // 该条版本链遍历完毕
+          break;  // 该条版本链遍历完毕
         }
         needed_txns.insert(link.prev_txn_);
         link = log.prev_version_;
