@@ -458,4 +458,43 @@ void IsWriteWriteConflict(Transaction *txn, TupleMeta meta) {
   }
 }
 
+// 更新table heap中的一个tuple 并更新 UndoLog write_set 等信息
+void Modify(const Schema &base_schema, const Tuple &base_tuple, TupleMeta &base_meta, const Tuple &target_tuple,
+            timestamp_t ts, ExecutorContext *exec_ctx, const TableInfo *table_info, TableHeap *table_heap) {
+  auto txn = exec_ctx->GetTransaction();
+  auto txn_mgr = exec_ctx->GetTransactionManager();
+  auto base_rid = base_tuple.GetRid();
+  // auto tuple_meta = table_heap->GetTupleMeta(child_rid);
+  IsWriteWriteConflict(txn, base_meta);  // 在修改前检查是否有写写冲突
+  auto undolink_opt = txn_mgr->GetUndoLink(base_rid);
+  UndoLink undolink = undolink_opt.has_value() ? undolink_opt.value() : UndoLink();
+  auto undolog_opt = txn_mgr->GetUndoLogOptional(undolink);
+  bool has_log = undolog_opt.has_value();
+  // auto ts = tuple_meta.ts_;
+  UndoLog undolog;
+
+  // 判断当前处理的tuple是否是本事务刚刚插入的
+  bool is_current_txn_insert = (undolink.prev_txn_ == INVALID_TXN_ID) && (base_meta.ts_ == txn->GetTransactionTempTs());
+
+  if (!is_current_txn_insert) {
+    if (!has_log || undolink.prev_txn_ != txn->GetTransactionId()) {
+      // 第一次 update，追加 undo log
+      undolog = GenerateNewUndoLog(&base_schema, &base_tuple, &target_tuple, ts, undolink);
+      auto new_link = txn->AppendUndoLog(undolog);
+      txn_mgr->UpdateUndoLink(base_rid, new_link);
+    } else {
+      // 已有 undo log，合并并覆盖
+      undolog = GenerateUpdatedUndoLog(&base_schema, &base_tuple, &target_tuple, undolog_opt.value());
+      txn->ModifyUndoLog(undolink.prev_log_idx_, undolog);
+    }
+  }
+  txn->AppendWriteSet(table_info->oid_, base_rid);
+
+  base_meta.ts_ = txn->GetTransactionTempTs();
+  base_meta.is_deleted_ = false;
+
+  table_heap->UpdateTupleInPlace(base_meta, target_tuple, base_rid);
+  // cnt_++;
+}
+
 }  // namespace bustub

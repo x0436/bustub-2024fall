@@ -20,6 +20,7 @@
 #include "catalog/schema.h"
 #include "concurrency/transaction.h"
 #include "storage/table/tuple.h"
+#include "execution/executor_context.h"
 
 namespace bustub {
 
@@ -89,4 +90,7 @@ void WalkUndoLogs(const timestamp_t &read_ts, const UndoLink &undo_link, std::ve
 auto GetUndoLogSchema(const Schema &base_schema, const UndoLog &undo_log) -> Schema;
 
 void IsWriteWriteConflict(Transaction *txn, TupleMeta meta);
+
+void Modify(const Schema &base_schema, const Tuple &base_tuple, TupleMeta &base_meta, const Tuple &target_tuple,
+            timestamp_t ts, ExecutorContext *exec_ctx, const TableInfo *table_info, TableHeap *table_heap);
 }  // namespace bustub

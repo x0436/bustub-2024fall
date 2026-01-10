@@ -42,9 +42,20 @@ void InsertExecutor::Init() {
         std::vector<RID> result;
         index->ScanKey(key, &result, txn);
         if (!result.empty()) {
-          // 主键已存在，处理冲突（如抛异常或跳过插入）
-          txn->SetTainted();
-          throw ExecutionException("unique key conflict");
+          // 主键已存在
+          // 获取该已存在tuple的metadate, 看基tuple是否已被删除
+          // 是否要看基tuple的时间戳
+          auto tmp_rid = result.front();
+          auto tmp_meta = table_heap->GetTuple(tmp_rid).first;
+          if (tmp_meta.is_deleted_ == true) { 
+            // 如果已存在但对应tuple被删除, 执行更新操作
+            Modify(table_info->schema_, nullptr, tmp_meta, child_tuple, tmp_meta.ts_, exec_ctx, table_info.get(), table_heap);
+}
+          } else {
+            // 抛异常
+            txn->SetTainted();
+            throw ExecutionException("unique key conflict");
+          }
         }
       }
     }

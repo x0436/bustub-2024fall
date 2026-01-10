@@ -36,7 +36,6 @@ void UpdateExecutor::Init() {
   auto table_schema = table_info->schema_;
 
   while (child_executor_->Next(&child_tuple, &child_rid)) {
-    // 删除
     auto tuple_meta = table_heap->GetTupleMeta(child_rid);
     IsWriteWriteConflict(txn, tuple_meta);  // 在修改前检查是否有写写冲突
 
@@ -56,28 +55,8 @@ void UpdateExecutor::Init() {
       vals.push_back(expr->Evaluate(&child_tuple, schema));
     }
     Tuple new_tuple(vals, &schema);
-
-    bool is_current_txn_insert =
-        (undolink.prev_txn_ == INVALID_TXN_ID) && (tuple_meta.ts_ == txn->GetTransactionTempTs());
-
-    if (!is_current_txn_insert) {
-      if (!has_log || undolink.prev_txn_ != txn->GetTransactionId()) {
-        // 第一次 update，追加 undo log
-        undolog = GenerateNewUndoLog(&schema, &child_tuple, &new_tuple, ts, undolink);
-        auto new_link = txn->AppendUndoLog(undolog);
-        txn_mgr->UpdateUndoLink(child_rid, new_link);
-      } else {
-        // 已有 undo log，合并并覆盖
-        undolog = GenerateUpdatedUndoLog(&schema, &child_tuple, &new_tuple, undolog_opt.value());
-        txn->ModifyUndoLog(undolink.prev_log_idx_, undolog);
-      }
-    }
-    txn->AppendWriteSet(table_info->oid_, child_rid);
-
-    tuple_meta.ts_ = txn->GetTransactionTempTs();
-    tuple_meta.is_deleted_ = false;
-
-    table_heap->UpdateTupleInPlace(tuple_meta, new_tuple, child_rid);
+  // 用 Modify 统一处理 undo log、写集、元数据和物理更新
+  Modify(schema, child_tuple, tuple_meta, new_tuple, tuple_meta.ts_, exec_ctx_, table_info_, table_heap);
     cnt_++;
 
     // 更新该表相关的所有索引

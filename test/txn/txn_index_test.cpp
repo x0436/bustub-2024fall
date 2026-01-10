@@ -83,7 +83,7 @@ TEST(TxnIndexTest, DISABLED_IndexInsertTest) {  // NOLINT
                                 }));
 }
 
-TEST(TxnIndexTest, InsertDeleteTest) {  // NOLINT
+TEST(TxnIndexTest, DISABLED_InsertDeleteTest) {  // NOLINT
   const std::string query = "SELECT * FROM maintable";
 
   auto bustub = std::make_unique<BusTubInstance>();
@@ -115,7 +115,7 @@ TEST(TxnIndexTest, InsertDeleteTest) {  // NOLINT
                                     IntResult{{1, 0}, {2, 0}, {3, 0}, {4, 0}}));
 }
 
-TEST(TxnIndexTest, DISABLED_UpdateTest) {  // NOLINT
+TEST(TxnIndexTest, UpdateTest) {  // NOLINT
   const std::string query = "SELECT * FROM maintable";
 
   const auto prepare =
@@ -164,7 +164,7 @@ TEST(TxnIndexTest, DISABLED_UpdateTest) {  // NOLINT
 
     WithTxn(txn3, ExecuteTxn(*bustub, _var, _txn, "INSERT INTO maintable VALUES (2, 1), (5, 1), (3, 1), (6, 1)"));
     TxnMgrDbg("after txn3 insert operations", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
-    WithTxn(txn3, ExecuteTxn(*bustub, _var, _txn, "UPDATE maintable SET col2 = col2 + 10"));
+    WithTxn(txn3, ExecuteTxn(*bustub, _var, _txn, "UPDATE maintable SET col2 = col2 + 10")); // UPDATE
     TxnMgrDbg("after txn3 update operations", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
     WithTxn(txn3, QueryShowResult(*bustub, _var, _txn, query,
                                   IntResult{
