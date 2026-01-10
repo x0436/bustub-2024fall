@@ -64,15 +64,13 @@ void DeleteExecutor::Init() {
     table_heap->UpdateTupleMeta(tuple_meta, child_rid);
     cnt_++;
 
-    // 更新该表相关的所有索引
-    for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
-      auto index = index_info->index_.get();
-      std::vector<Value> key_values{};
-      key_values.reserve(index->GetIndexColumnCount());
+    // 不要直接把索引全部删除
+    // for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
+    //   auto index = index_info->index_.get();
 
-      auto key = child_tuple.KeyFromTuple(schema, *index->GetKeySchema(), index->GetKeyAttrs());
-      index->DeleteEntry(key, child_rid, exec_ctx_->GetTransaction());
-    }
+    //   auto key = child_tuple.KeyFromTuple(schema, *index->GetKeySchema(), index->GetKeyAttrs());
+    //   index->DeleteEntry(key, child_rid, exec_ctx_->GetTransaction());
+    // }
   }
 }
 

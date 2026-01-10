@@ -59,15 +59,18 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       continue;  // 被删除，不可见
     }
 
-    // 过滤
+    // 如果有 WHERE 条件
     if (filter_expr) {
+      // 计算条件表达式
       auto value = filter_expr->Evaluate(&(*visible_tuple), GetOutputSchema());
+      // 条件为 true，返回这一行
       if (!value.IsNull() && value.GetAs<bool>()) {
         *tuple = *visible_tuple;
         *rid = cur_rid;
         return true;
       }
     } else {
+      // 没有 WHERE，直接返回这一行
       *tuple = *visible_tuple;
       *rid = cur_rid;
       return true;

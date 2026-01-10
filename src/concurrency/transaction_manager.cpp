@@ -138,7 +138,7 @@ void TransactionManager::GarbageCollection() {
   // 2. 遍历所有事务, 不在txns的事务均删除
   std::vector<txn_id_t> to_delete;
   for (const auto &[txn_id, txn] : txn_map_) {
-    if (!needed_txns.count(txn_id) &&
+    if (needed_txns.count(txn_id) == 0U &&
         (txn->state_ == TransactionState::COMMITTED || txn->state_ == TransactionState::ABORTED)) {
       to_delete.push_back(txn_id);
     }

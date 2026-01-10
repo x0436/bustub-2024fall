@@ -57,12 +57,20 @@ void InsertExecutor::Init() {
     txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr);  // 记录该tuple到版本库, 放置一个无效的UndoLink
     cnt_++;
 
-    // 更新该表相关的所有索引
+    // 3. 插入所有索引（主键索引需要检测唯一性冲突）
     for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
       auto index = index_info->index_.get();
       auto key =
           child_tuple.KeyFromTuple(child_executor_->GetOutputSchema(), *index->GetKeySchema(), index->GetKeyAttrs());
-      index->InsertEntry(key, *key_rid, exec_ctx_->GetTransaction());
+      // 主键索引插入时要检测冲突
+      if (index_info->is_primary_key_) {
+        if (!index->InsertEntry(key, *key_rid, exec_ctx_->GetTransaction())) {
+          txn->SetTainted();
+          throw ExecutionException("unique key conflict");
+        }
+      } else {
+        index->InsertEntry(key, *key_rid, exec_ctx_->GetTransaction());
+      }
     }
   }
 }
