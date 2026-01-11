@@ -33,6 +33,7 @@ void InsertExecutor::Init() {
   auto txn_mgr = exec_ctx_->GetTransactionManager();
 
   while (child_executor_->Next(&child_tuple, &child_rid)) {
+    bool skip_insert = false;  // 如果是插入删除的tuple, 成功后跳过本轮while
     // 拿到tuple之后去主键索引里找有没有重复的, 有就Tained
     for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
       if (index_info->is_primary_key_) {
@@ -47,17 +48,23 @@ void InsertExecutor::Init() {
           // 是否要看基tuple的时间戳
           auto tmp_rid = result.front();
           auto tmp_meta = table_heap->GetTuple(tmp_rid).first;
-          if (tmp_meta.is_deleted_ == true) { 
-            // 如果已存在但对应tuple被删除, 执行更新操作
-            Modify(table_info->schema_, nullptr, tmp_meta, child_tuple, tmp_meta.ts_, exec_ctx, table_info.get(), table_heap);
-}
+          if (tmp_meta.is_deleted_ == true) {
+            // 如果已存在但对应tuple被删除, 执行"插入"操作
+            auto tmp_tuple = table_heap->GetTuple(tmp_rid);
+            Modify(table_info->schema_, &tmp_tuple.second, tmp_meta, &child_tuple, tmp_meta.ts_, exec_ctx_, table_info.get(),
+                   table_heap); // 这里为什么不填 nullptr 的
+            skip_insert = true;
           } else {
             // 抛异常
             txn->SetTainted();
-            throw ExecutionException("unique key conflict");
+            throw ExecutionException("(1) unique key conflict");
           }
         }
+        // 含有与插入的主键相同的tuple不存在
       }
+    }
+    if (skip_insert) {
+      continue;  // 跳过本轮while
     }
     TupleMeta tuple_meta;
     tuple_meta.ts_ = txn->GetTransactionTempTs();  // 时间戳更新为 事务临时时间戳
@@ -77,7 +84,7 @@ void InsertExecutor::Init() {
       if (index_info->is_primary_key_) {
         if (!index->InsertEntry(key, *key_rid, exec_ctx_->GetTransaction())) {
           txn->SetTainted();
-          throw ExecutionException("unique key conflict");
+          throw ExecutionException("(2)unique key conflict");
         }
       } else {
         index->InsertEntry(key, *key_rid, exec_ctx_->GetTransaction());

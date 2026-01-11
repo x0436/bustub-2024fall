@@ -265,6 +265,29 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
     new_log.prev_version_ = log.prev_version_;  // 保留原版本链
     return new_log;
   }
+  // 2.插入
+  std::vector<Column> columns;
+  columns.reserve(size);
+  if (base_tuple == nullptr) {  
+    // 只用对比旧undolog的tuple 和 target_tuple
+    auto old_tuple = log.tuple_;
+    for (size_t i = 0; i < size; ++i) {  // 遍历基tuple和新tuple找不同
+      if (!target_tuple->GetValue(schema, i).CompareExactlyEquals(old_tuple.GetValue(schema, i))) {
+        // 不同则把新tuple的Value塞入 values 并更新 modified 数组
+        values.emplace_back(old_tuple.GetValue(schema, i));
+        new_log.modified_fields_[i] = true;
+        columns.emplace_back(schema->GetColumn(i));
+      } else {
+        new_log.modified_fields_[i] = false;
+      }
+    }
+    Schema new_schema(columns);
+    new_log.tuple_ = Tuple(values, &new_schema);
+    new_log.is_deleted_ = log.is_deleted_;
+    new_log.ts_ = log.ts_;                      // 保留原 ts
+    new_log.prev_version_ = log.prev_version_;  // 保留原版本链
+    return new_log;
+  }
 
   // 累积修改列：new = old || now_modified
   for (size_t i = 0, idx = 0; i < size; ++i) {
@@ -459,11 +482,11 @@ void IsWriteWriteConflict(Transaction *txn, TupleMeta meta) {
 }
 
 // 更新table heap中的一个tuple 并更新 UndoLog write_set 等信息
-void Modify(const Schema &base_schema, const Tuple &base_tuple, TupleMeta &base_meta, const Tuple &target_tuple,
+void Modify(const Schema &base_schema, const Tuple *base_tuple, TupleMeta &base_meta, const Tuple *target_tuple,
             timestamp_t ts, ExecutorContext *exec_ctx, const TableInfo *table_info, TableHeap *table_heap) {
   auto txn = exec_ctx->GetTransaction();
   auto txn_mgr = exec_ctx->GetTransactionManager();
-  auto base_rid = base_tuple.GetRid();
+  auto base_rid = base_tuple->GetRid();
   // auto tuple_meta = table_heap->GetTupleMeta(child_rid);
   IsWriteWriteConflict(txn, base_meta);  // 在修改前检查是否有写写冲突
   auto undolink_opt = txn_mgr->GetUndoLink(base_rid);
@@ -473,28 +496,31 @@ void Modify(const Schema &base_schema, const Tuple &base_tuple, TupleMeta &base_
   // auto ts = tuple_meta.ts_;
   UndoLog undolog;
 
-  // 判断当前处理的tuple是否是本事务刚刚插入的
+  // 设置GenerateUndoLog函数的参数
+  auto old_tuple = base_meta.is_deleted_ ? nullptr : base_tuple;
+
+
+  // 判断当前处理的tuple是否没有任何 undo log 且 为本事务刚刚插入的
   bool is_current_txn_insert = (undolink.prev_txn_ == INVALID_TXN_ID) && (base_meta.ts_ == txn->GetTransactionTempTs());
 
   if (!is_current_txn_insert) {
     if (!has_log || undolink.prev_txn_ != txn->GetTransactionId()) {
       // 第一次 update，追加 undo log
-      undolog = GenerateNewUndoLog(&base_schema, &base_tuple, &target_tuple, ts, undolink);
+      undolog = GenerateNewUndoLog(&base_schema, old_tuple, target_tuple, ts, undolink);
       auto new_link = txn->AppendUndoLog(undolog);
       txn_mgr->UpdateUndoLink(base_rid, new_link);
     } else {
       // 已有 undo log，合并并覆盖
-      undolog = GenerateUpdatedUndoLog(&base_schema, &base_tuple, &target_tuple, undolog_opt.value());
+      undolog = GenerateUpdatedUndoLog(&base_schema, old_tuple, target_tuple, undolog_opt.value());
       txn->ModifyUndoLog(undolink.prev_log_idx_, undolog);
     }
   }
   txn->AppendWriteSet(table_info->oid_, base_rid);
 
   base_meta.ts_ = txn->GetTransactionTempTs();
-  base_meta.is_deleted_ = false;
+  base_meta.is_deleted_ = false; // 如果是删除, 这里要填true // = (target_tuple == nullptr);
 
-  table_heap->UpdateTupleInPlace(base_meta, target_tuple, base_rid);
-  // cnt_++;
+  table_heap->UpdateTupleInPlace(base_meta, *target_tuple, base_rid);
 }
 
 }  // namespace bustub

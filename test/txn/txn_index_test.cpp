@@ -131,6 +131,7 @@ TEST(TxnIndexTest, UpdateTest) {  // NOLINT
     WithTxn(txn2, ExecuteTxn(*bustub, _var, _txn, "DELETE FROM maintable WHERE col1 = 3"));
     WithTxn(txn2, CommitTxn(*bustub, _var, _txn));
     auto txn2_reverify = BeginTxn(*bustub, "txn2_reverify");
+    TxnMgrDbg("after txn2", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
     // at this point, we have (1, 0) inserted, (2, 0) deleted, and (3, 0) self inserted and deleted.
     auto txn3 = BeginTxn(*bustub, "txn3");
     WithTxn(txn3, ExecuteTxn(*bustub, _var, _txn, "INSERT INTO maintable VALUES (4, 0), (6, 0)"));
@@ -162,7 +163,7 @@ TEST(TxnIndexTest, UpdateTest) {  // NOLINT
     WithTxn(txn3, QueryIndex(*bustub, _var, _txn, query, "col1", std::vector<int>{1, 2, 3, 4, 5, 6},
                              IntResult{{1, 0}, {}, {}, {4, 0}, {}, {}}));
 
-    WithTxn(txn3, ExecuteTxn(*bustub, _var, _txn, "INSERT INTO maintable VALUES (2, 1), (5, 1), (3, 1), (6, 1)"));
+    WithTxn(txn3, ExecuteTxn(*bustub, _var, _txn, "INSERT INTO maintable VALUES (2, 1), (5, 1), (3, 1), (6, 1)")); // 插入
     TxnMgrDbg("after txn3 insert operations", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
     WithTxn(txn3, ExecuteTxn(*bustub, _var, _txn, "UPDATE maintable SET col2 = col2 + 10")); // UPDATE
     TxnMgrDbg("after txn3 update operations", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
@@ -184,7 +185,7 @@ TEST(TxnIndexTest, UpdateTest) {  // NOLINT
                                  {5, 11},
                                  {6, 11},
                              }));
-    WithTxn(txn3, CommitTxn(*bustub, _var, _txn));
+    WithTxn(txn3, CommitTxn(*bustub, _var, _txn)); // 事务3提交
     TxnMgrDbg("after commit", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
 
     auto txn4 = BeginTxn(*bustub, "txn4");

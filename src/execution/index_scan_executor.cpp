@@ -57,15 +57,15 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     // 如果该 tuple 没有被标记为删除，并且有过滤谓词
     if (filter_expr) {
       // 计算谓词表达式的值
-      auto value = filter_expr->Evaluate(&tuple_pair.second, GetOutputSchema());
+      auto value = filter_expr->Evaluate(&(*visible_tuple), GetOutputSchema());
       // 如果谓词结果为 true，则返回该 tuple
       if (!value.IsNull() && value.GetAs<bool>()) {
-        *tuple = tuple_pair.second;
+        *tuple = *visible_tuple;
         return true;
       }
       // 如果没有谓词，只要 tuple 没有被删除就返回
     } else {
-      *tuple = tuple_pair.second;
+      *tuple = *visible_tuple;
       return true;
     }
   }

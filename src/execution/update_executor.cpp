@@ -43,8 +43,8 @@ void UpdateExecutor::Init() {
     auto undolink_opt = txn_mgr->GetUndoLink(child_rid);
     UndoLink undolink = undolink_opt.has_value() ? undolink_opt.value() : UndoLink();
     auto undolog_opt = txn_mgr->GetUndoLogOptional(undolink);
-    bool has_log = undolog_opt.has_value();
-    auto ts = tuple_meta.ts_;
+    // bool has_log = undolog_opt.has_value();
+    // auto ts = tuple_meta.ts_;
     UndoLog undolog;
 
     // new_tuple
@@ -55,8 +55,8 @@ void UpdateExecutor::Init() {
       vals.push_back(expr->Evaluate(&child_tuple, schema));
     }
     Tuple new_tuple(vals, &schema);
-  // 用 Modify 统一处理 undo log、写集、元数据和物理更新
-  Modify(schema, child_tuple, tuple_meta, new_tuple, tuple_meta.ts_, exec_ctx_, table_info_, table_heap);
+    // 用 Modify 统一处理 undo log、写集、元数据和物理更新
+    Modify(schema, &child_tuple, tuple_meta, &new_tuple, tuple_meta.ts_, exec_ctx_, table_info_, table_heap);
     cnt_++;
 
     // 更新该表相关的所有索引
@@ -69,7 +69,7 @@ void UpdateExecutor::Init() {
       index->DeleteEntry(key1, child_rid, exec_ctx_->GetTransaction());  // 删除
 
       auto key2 = new_tuple.KeyFromTuple(table_schema, *index->GetKeySchema(),
-                                         index->GetKeyAttrs());  // 感觉子算子的schema和表的schema一样
+                                         index->GetKeyAttrs());          // 感觉子算子的schema和表的schema一样
       index->InsertEntry(key2, child_rid, exec_ctx_->GetTransaction());  // 插入
     }
   }
