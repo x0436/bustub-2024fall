@@ -31,21 +31,32 @@ void UpdateExecutor::Init() {
   RID child_rid;
   cnt_ = 0;
   auto txn = exec_ctx_->GetTransaction();
-  // auto txn_mgr = exec_ctx_->GetTransactionManager();
   auto schema = child_executor_->GetOutputSchema();
   auto table_schema = table_info->schema_;
+
+  // 获得主键的下标
+  auto indexes = catalog->GetTableIndexes(table_info->name_);
+  std::vector<uint32_t> pk_col_idxs;
+  for (const auto &index_info : indexes) {
+    if (index_info->is_primary_key_) {
+      pk_col_idxs = index_info->index_->GetKeyAttrs();  
+      break;
+    }
+  }
+  // 判断主键列是否被更新
+  bool update_pk = false;
+  for (auto pk_idx : pk_col_idxs) {
+    auto &expr = plan_->target_expressions_[pk_idx];
+    auto col_expr = dynamic_cast<const ColumnValueExpression *>(expr.get());
+    if (col_expr == nullptr || col_expr->GetColIdx() != pk_idx) {
+      update_pk = true;
+      break;
+    }
+  }
 
   while (child_executor_->Next(&child_tuple, &child_rid)) {
     auto tuple_meta = table_heap->GetTupleMeta(child_rid);
     IsWriteWriteConflict(txn, tuple_meta);  // 在修改前检查是否有写写冲突
-
-    // 没有写写冲突
-    // auto undolink_opt = txn_mgr->GetUndoLink(child_rid);
-    // UndoLink undolink = undolink_opt.has_value() ? undolink_opt.value() : UndoLink();
-    // auto undolog_opt = txn_mgr->GetUndoLogOptional(undolink);
-    // bool has_log = undolog_opt.has_value();
-    // auto ts = tuple_meta.ts_;
-    // UndoLog undolog;
 
     // new_tuple
     std::vector<Value> vals;
@@ -55,22 +66,28 @@ void UpdateExecutor::Init() {
       vals.push_back(expr->Evaluate(&child_tuple, schema));
     }
     Tuple new_tuple(vals, &schema);
-    // 用 Modify 统一处理 undo log、写集、元数据和物理更新
-    Modify(&child_tuple, tuple_meta, &new_tuple, exec_ctx_, table_info.get());
-    cnt_++;
 
-    // 更新该表相关的所有索引
-    for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
-      auto index = index_info->index_.get();
-      std::vector<Value> key_values{};
-      key_values.reserve(index->GetIndexColumnCount());
+    if (update_pk) {
+      // 如果更新的是主键
+      
+    } else {
+      // 如果更新的不是主键
+      Modify(&child_tuple, tuple_meta, &new_tuple, exec_ctx_, table_info.get());
+      cnt_++;
 
-      auto key1 = child_tuple.KeyFromTuple(table_schema, *index->GetKeySchema(), index->GetKeyAttrs());
-      index->DeleteEntry(key1, child_rid, exec_ctx_->GetTransaction());  // 删除
+      // 更新该表相关的所有索引
+      for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
+        auto index = index_info->index_.get();
+        std::vector<Value> key_values{};
+        key_values.reserve(index->GetIndexColumnCount());
 
-      auto key2 = new_tuple.KeyFromTuple(table_schema, *index->GetKeySchema(),
-                                         index->GetKeyAttrs());          // 感觉子算子的schema和表的schema一样
-      index->InsertEntry(key2, child_rid, exec_ctx_->GetTransaction());  // 插入
+        auto key1 = child_tuple.KeyFromTuple(table_schema, *index->GetKeySchema(), index->GetKeyAttrs());
+        index->DeleteEntry(key1, child_rid, exec_ctx_->GetTransaction());  // 删除
+
+        auto key2 = new_tuple.KeyFromTuple(table_schema, *index->GetKeySchema(),
+                                           index->GetKeyAttrs());          // 感觉子算子的schema和表的schema一样
+        index->InsertEntry(key2, child_rid, exec_ctx_->GetTransaction());  // 插入
+      }
     }
   }
 }

@@ -23,6 +23,7 @@
 #include "execution/plans/update_plan.h"
 #include "storage/table/tuple.h"
 #include "type/value_factory.h"
+#include "execution/expressions/column_value_expression.h"
 
 namespace bustub {
 
