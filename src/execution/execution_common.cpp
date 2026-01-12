@@ -482,8 +482,10 @@ void IsWriteWriteConflict(Transaction *txn, TupleMeta meta) {
 }
 
 // 更新table heap中的一个tuple 并更新 UndoLog write_set 等信息
-void Modify(const Schema &base_schema, const Tuple *base_tuple, TupleMeta &base_meta, const Tuple *target_tuple,
-            timestamp_t ts, ExecutorContext *exec_ctx, const TableInfo *table_info, TableHeap *table_heap) {
+void Modify(const Tuple *base_tuple, TupleMeta &base_meta, const Tuple *target_tuple, ExecutorContext *exec_ctx,
+            TableInfo *table_info) {
+  auto table_heap = table_info->table_.get();
+  auto &base_schema = table_info->schema_;
   auto txn = exec_ctx->GetTransaction();
   auto txn_mgr = exec_ctx->GetTransactionManager();
   auto base_rid = base_tuple->GetRid();
@@ -505,7 +507,7 @@ void Modify(const Schema &base_schema, const Tuple *base_tuple, TupleMeta &base_
   if (!is_current_txn_insert) {
     if (!has_log || undolink.prev_txn_ != txn->GetTransactionId()) {
       // 第一次 update，追加 undo log
-      undolog = GenerateNewUndoLog(&base_schema, old_tuple, target_tuple, ts, undolink);
+      undolog = GenerateNewUndoLog(&base_schema, old_tuple, target_tuple, base_meta.ts_, undolink);
       auto new_link = txn->AppendUndoLog(undolog);
       txn_mgr->UpdateUndoLink(base_rid, new_link);
     } else {

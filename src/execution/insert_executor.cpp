@@ -51,8 +51,7 @@ void InsertExecutor::Init() {
           if (tmp_meta.is_deleted_ == true) {
             // 如果已存在但对应tuple被删除, 执行"插入"操作
             auto tmp_tuple = table_heap->GetTuple(tmp_rid);
-            Modify(table_info->schema_, &tmp_tuple.second, tmp_meta, &child_tuple, tmp_meta.ts_, exec_ctx_, table_info.get(),
-                   table_heap); // 这里为什么不填 nullptr 的
+            Modify(&tmp_tuple.second, tmp_meta, &child_tuple, exec_ctx_, table_info.get()); // 这里为什么不填 nullptr 的
             skip_insert = true;
           } else {
             // 抛异常

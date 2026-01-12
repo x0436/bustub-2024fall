@@ -61,7 +61,7 @@ void DeleteExecutor::Init() {
     // tuple_meta.is_deleted_ = true;
     // table_heap->UpdateTupleMeta(tuple_meta, child_rid);
     auto tuple_meta = table_heap->GetTupleMeta(child_rid);
-    Modify(schema, &child_tuple, tuple_meta, nullptr, tuple_meta.ts_, exec_ctx_, table_info.get(), table_heap);
+    Modify(&child_tuple, tuple_meta, nullptr, exec_ctx_, table_info.get());
     cnt_++;
   }
 }

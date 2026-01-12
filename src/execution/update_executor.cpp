@@ -31,7 +31,7 @@ void UpdateExecutor::Init() {
   RID child_rid;
   cnt_ = 0;
   auto txn = exec_ctx_->GetTransaction();
-  auto txn_mgr = exec_ctx_->GetTransactionManager();
+  // auto txn_mgr = exec_ctx_->GetTransactionManager();
   auto schema = child_executor_->GetOutputSchema();
   auto table_schema = table_info->schema_;
 
@@ -56,7 +56,7 @@ void UpdateExecutor::Init() {
     }
     Tuple new_tuple(vals, &schema);
     // 用 Modify 统一处理 undo log、写集、元数据和物理更新
-    Modify(schema, &child_tuple, tuple_meta, &new_tuple, tuple_meta.ts_, exec_ctx_, table_info_, table_heap);
+    Modify(&child_tuple, tuple_meta, &new_tuple, exec_ctx_, table_info.get());
     cnt_++;
 
     // 更新该表相关的所有索引
