@@ -268,7 +268,7 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
   // 2.插入
   std::vector<Column> columns;
   columns.reserve(size);
-  if (base_tuple == nullptr) {  
+  if (base_tuple == nullptr) {
     // 只用对比旧undolog的tuple 和 target_tuple
     auto old_tuple = log.tuple_;
     for (size_t i = 0; i < size; ++i) {  // 遍历基tuple和新tuple找不同
@@ -499,7 +499,6 @@ void Modify(const Schema &base_schema, const Tuple *base_tuple, TupleMeta &base_
   // 设置GenerateUndoLog函数的参数
   auto old_tuple = base_meta.is_deleted_ ? nullptr : base_tuple;
 
-
   // 判断当前处理的tuple是否没有任何 undo log 且 为本事务刚刚插入的
   bool is_current_txn_insert = (undolink.prev_txn_ == INVALID_TXN_ID) && (base_meta.ts_ == txn->GetTransactionTempTs());
 
@@ -518,9 +517,14 @@ void Modify(const Schema &base_schema, const Tuple *base_tuple, TupleMeta &base_
   txn->AppendWriteSet(table_info->oid_, base_rid);
 
   base_meta.ts_ = txn->GetTransactionTempTs();
-  base_meta.is_deleted_ = false; // 如果是删除, 这里要填true // = (target_tuple == nullptr);
+  base_meta.is_deleted_ = (target_tuple == nullptr);  // 如果是删除, 为true
 
-  table_heap->UpdateTupleInPlace(base_meta, *target_tuple, base_rid);
+  if (target_tuple != nullptr) {
+    table_heap->UpdateTupleInPlace(base_meta, *target_tuple, base_rid);
+  } else {
+    // 删除时需要写回元数据
+    table_heap->UpdateTupleMeta(base_meta, base_rid);
+  }
 }
 
 }  // namespace bustub

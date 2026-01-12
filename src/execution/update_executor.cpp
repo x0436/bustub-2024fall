@@ -40,12 +40,12 @@ void UpdateExecutor::Init() {
     IsWriteWriteConflict(txn, tuple_meta);  // 在修改前检查是否有写写冲突
 
     // 没有写写冲突
-    auto undolink_opt = txn_mgr->GetUndoLink(child_rid);
-    UndoLink undolink = undolink_opt.has_value() ? undolink_opt.value() : UndoLink();
-    auto undolog_opt = txn_mgr->GetUndoLogOptional(undolink);
+    // auto undolink_opt = txn_mgr->GetUndoLink(child_rid);
+    // UndoLink undolink = undolink_opt.has_value() ? undolink_opt.value() : UndoLink();
+    // auto undolog_opt = txn_mgr->GetUndoLogOptional(undolink);
     // bool has_log = undolog_opt.has_value();
     // auto ts = tuple_meta.ts_;
-    UndoLog undolog;
+    // UndoLog undolog;
 
     // new_tuple
     std::vector<Value> vals;
