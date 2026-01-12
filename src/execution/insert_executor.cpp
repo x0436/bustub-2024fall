@@ -46,13 +46,28 @@ void InsertExecutor::Init() {
           // 主键已存在
           // 获取该已存在tuple的metadate, 看基tuple是否已被删除
           // 是否要看基tuple的时间戳
-          auto tmp_rid = result.front();
-          auto tmp_meta = table_heap->GetTuple(tmp_rid).first;
-          if (tmp_meta.is_deleted_ == true) {
-            // 如果已存在但对应tuple被删除, 执行"插入"操作
-            auto tmp_tuple = table_heap->GetTuple(tmp_rid);
-            Modify(&tmp_tuple.second, tmp_meta, &child_tuple, exec_ctx_, table_info.get()); // 这里为什么不填 nullptr 的
+          auto old_rid = result.front();
+          auto old_meta = table_heap->GetTuple(old_rid).first;
+          if (old_meta.is_deleted_ == true) {
+            // 如果已存在但对应tuple被删除, 执行"复活"操作
+            auto old_tuple = table_heap->GetTuple(old_rid);
+            Modify(&old_tuple.second, old_meta, &child_tuple, exec_ctx_,
+                   table_info.get());  // 这里为什么不填 nullptr 的
             skip_insert = true;
+            // 复活操作也要更新索引, 除开主键索引外都要更新
+            for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
+              auto index = index_info->index_.get();
+              auto key1 = old_tuple.second.KeyFromTuple(child_executor_->GetOutputSchema(), *index->GetKeySchema(),
+                                                  index->GetKeyAttrs());
+              auto key2 = child_tuple.KeyFromTuple(child_executor_->GetOutputSchema(), *index->GetKeySchema(),
+                                                  index->GetKeyAttrs());
+              if (index_info->is_primary_key_) {
+                continue;
+              } else {
+                index->DeleteEntry(key1, old_rid, exec_ctx_->GetTransaction());
+                index->InsertEntry(key2, old_rid, exec_ctx_->GetTransaction());
+              }
+            }
           } else {
             // 抛异常
             txn->SetTainted();
@@ -65,6 +80,7 @@ void InsertExecutor::Init() {
     if (skip_insert) {
       continue;  // 跳过本轮while
     }
+    // 纯插入
     TupleMeta tuple_meta;
     tuple_meta.ts_ = txn->GetTransactionTempTs();  // 时间戳更新为 事务临时时间戳
     tuple_meta.is_deleted_ = false;
