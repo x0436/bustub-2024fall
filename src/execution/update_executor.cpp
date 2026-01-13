@@ -27,9 +27,6 @@ void UpdateExecutor::Init() {
   auto table_info = catalog->GetTable(plan_->GetTableOid());
   table_info_ = table_info.get();
   auto table_heap = table_info->table_.get();
-  Tuple child_tuple;
-  RID child_rid;
-  cnt_ = 0;
   auto txn = exec_ctx_->GetTransaction();
   auto txn_mgr = exec_ctx_->GetTransactionManager();
   auto schema = child_executor_->GetOutputSchema();
@@ -55,7 +52,17 @@ void UpdateExecutor::Init() {
     }
   }
 
+  // 1. 收集所有 tuple
+  std::vector<std::pair<Tuple, RID>> tuples;
+  Tuple child_tuple;
+  RID child_rid;
   while (child_executor_->Next(&child_tuple, &child_rid)) {
+    tuples.emplace_back(child_tuple, child_rid);
+  }
+  cnt_ = 0;
+
+
+  for (const auto &[child_tuple, child_rid] : tuples) {
     auto tuple_meta = table_heap->GetTupleMeta(child_rid);
     IsWriteWriteConflict(txn, tuple_meta);  // 在修改前检查是否有写写冲突
 
@@ -78,7 +85,7 @@ void UpdateExecutor::Init() {
       auto key_rid = table_heap->InsertTuple(new_tuple_meta, new_tuple, exec_ctx_->GetLockManager(),
                                              exec_ctx_->GetTransaction(), plan_->GetTableOid());
       txn->AppendWriteSet(table_info->oid_, *key_rid);
-      txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr); // 记录该tuple到版本库, 放置一个无效的UndoLink
+      txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr);  // 记录该tuple到版本库, 放置一个无效的UndoLink
 
       cnt_++;
       // 是否需要更新索引
