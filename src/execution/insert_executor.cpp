@@ -33,7 +33,7 @@ void InsertExecutor::Init() {
   auto txn_mgr = exec_ctx_->GetTransactionManager();
 
   while (child_executor_->Next(&child_tuple, &child_rid)) {
-    bool skip_insert = false;  // 如果是插入删除的tuple, 成功后跳过本轮while
+    bool skip_insert = false; // 如果是插入删除的tuple, 成功后跳过本轮while
     // 拿到tuple之后去主键索引里找有没有重复的, 有就Tained
     for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
       if (index_info->is_primary_key_) {

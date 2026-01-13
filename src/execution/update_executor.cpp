@@ -33,10 +33,11 @@ void UpdateExecutor::Init() {
   auto table_schema = table_info->schema_;
 
   // 获得主键的下标
-  auto indexes = catalog->GetTableIndexes(table_info->name_);
   std::vector<uint32_t> pk_col_idxs;
-  for (const auto &index_info : indexes) {
+  Index *pk_index;  // 唯一的主键索引
+  for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
     if (index_info->is_primary_key_) {
+      pk_index = index_info->index_.get();
       pk_col_idxs = index_info->index_->GetKeyAttrs();
       break;
     }
@@ -52,7 +53,7 @@ void UpdateExecutor::Init() {
     }
   }
 
-  // 1. 收集所有 tuple
+  // 收集所有 tuple
   std::vector<std::pair<Tuple, RID>> tuples;
   Tuple child_tuple;
   RID child_rid;
@@ -60,8 +61,15 @@ void UpdateExecutor::Init() {
     tuples.emplace_back(child_tuple, child_rid);
   }
   cnt_ = 0;
+  // 如果要更新主键, 先把所有tuple都删除
+  if (update_pk) {
+    for (const auto &[child_tuple, child_rid] : tuples) {
+      auto tuple_meta = table_heap->GetTupleMeta(child_rid);
+      Modify(&child_tuple, tuple_meta, nullptr, exec_ctx_, table_info.get());
+    }
+  }
 
-
+  // 遍历存储的tuple, 生成new_tuple用于更新原tuple
   for (const auto &[child_tuple, child_rid] : tuples) {
     auto tuple_meta = table_heap->GetTupleMeta(child_rid);
     IsWriteWriteConflict(txn, tuple_meta);  // 在修改前检查是否有写写冲突
@@ -75,24 +83,62 @@ void UpdateExecutor::Init() {
     }
     Tuple new_tuple(vals, &schema);
 
+    // 复活、简单插入
     if (update_pk) {
-      // 如果更新的是主键
-      Modify(&child_tuple, tuple_meta, nullptr, exec_ctx_, table_info.get());  // 删除base_tuple
-      // 插入 new_tuple, 注意下面写错了, 不是纯插入, 可能要复活
-      TupleMeta new_tuple_meta;
-      new_tuple_meta.ts_ = txn->GetTransactionTempTs();  // 时间戳更新为 事务临时时间戳
-      new_tuple_meta.is_deleted_ = false;
-      auto key_rid = table_heap->InsertTuple(new_tuple_meta, new_tuple, exec_ctx_->GetLockManager(),
-                                             exec_ctx_->GetTransaction(), plan_->GetTableOid());
-      txn->AppendWriteSet(table_info->oid_, *key_rid);
-      txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr);  // 记录该tuple到版本库, 放置一个无效的UndoLink
+      // 查主键索引中是否有重复key
+      auto key = new_tuple.KeyFromTuple(child_executor_->GetOutputSchema(), *pk_index->GetKeySchema(),
+                                        pk_index->GetKeyAttrs());
+      std::vector<RID> result;
+      pk_index->ScanKey(key, &result, txn);
+      if (!result.empty()) {
+        // 重复key存在, 且一定被删除, 执行"复活"操作
+        auto old_rid = result.front();
+        auto old_meta = table_heap->GetTuple(old_rid).first;
+        auto old_tuple = table_heap->GetTuple(old_rid);
+        Modify(&old_tuple.second, old_meta, &new_tuple, exec_ctx_, table_info.get());
+        // 复活操作也要更新索引, 除开主键索引外都要更新
+        for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
+          auto index = index_info->index_.get();
+          auto key1 = old_tuple.second.KeyFromTuple(child_executor_->GetOutputSchema(), *index->GetKeySchema(),
+                                                    index->GetKeyAttrs());
+          auto key2 =
+              new_tuple.KeyFromTuple(child_executor_->GetOutputSchema(), *index->GetKeySchema(), index->GetKeyAttrs());
+          if (index_info->is_primary_key_) {
+            continue;
+          } else {
+            index->DeleteEntry(key1, old_rid, exec_ctx_->GetTransaction());
+            index->InsertEntry(key2, old_rid, exec_ctx_->GetTransaction());
+          }
+        }
+      } else {
+        // 简单插入, 并插入索引
+        TupleMeta new_tuple_meta;
+        new_tuple_meta.ts_ = txn->GetTransactionTempTs();  // 时间戳更新为 事务临时时间戳
+        new_tuple_meta.is_deleted_ = false;
+        auto key_rid = table_heap->InsertTuple(new_tuple_meta, new_tuple, exec_ctx_->GetLockManager(),
+                                               exec_ctx_->GetTransaction(), plan_->GetTableOid());
+        txn->AppendWriteSet(table_info->oid_, *key_rid);
+        txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr);  // 记录该tuple到版本库, 放置一个无效的UndoLink
 
-      cnt_++;
-      // 是否需要更新索引
+        // 插入所有索引（主键索引需要检测唯一性冲突）
+        for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
+          auto index = index_info->index_.get();
+          auto key =
+              new_tuple.KeyFromTuple(child_executor_->GetOutputSchema(), *index->GetKeySchema(), index->GetKeyAttrs());
+          // 主键索引插入时要检测冲突
+          if (index_info->is_primary_key_) {
+            if (!index->InsertEntry(key, *key_rid, exec_ctx_->GetTransaction())) {
+              txn->SetTainted();
+              throw ExecutionException("(2)unique key conflict");
+            }
+          } else {
+            index->InsertEntry(key, *key_rid, exec_ctx_->GetTransaction());
+          }
+        }
+      }
     } else {
-      // 如果更新的不是主键
+      // 如果更新的不是主键, 直接更新
       Modify(&child_tuple, tuple_meta, &new_tuple, exec_ctx_, table_info.get());
-      cnt_++;
 
       // 更新该表相关的所有索引
       for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
@@ -105,6 +151,7 @@ void UpdateExecutor::Init() {
         index->InsertEntry(key2, child_rid, exec_ctx_->GetTransaction());  // 插入
       }
     }
+    cnt_++;
   }
 }
 
