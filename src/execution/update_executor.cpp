@@ -72,7 +72,7 @@ void UpdateExecutor::Init() {
   // 遍历存储的tuple, 生成new_tuple用于更新原tuple
   for (const auto &[child_tuple, child_rid] : tuples) {
     auto tuple_meta = table_heap->GetTupleMeta(child_rid);
-    IsWriteWriteConflict(txn, tuple_meta);  // 在修改前检查是否有写写冲突
+    // IsWriteWriteConflict(txn, tuple_meta);  // 在修改前检查是否有写写冲突
 
     // new_tuple
     std::vector<Value> vals;
@@ -142,6 +142,9 @@ void UpdateExecutor::Init() {
 
       // 更新该表相关的所有索引
       for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
+        if (index_info->is_primary_key_) {
+          continue;
+        }
         auto index = index_info->index_.get();
         auto key1 = child_tuple.KeyFromTuple(table_schema, *index->GetKeySchema(), index->GetKeyAttrs());
         index->DeleteEntry(key1, child_rid, exec_ctx_->GetTransaction());  // 删除
