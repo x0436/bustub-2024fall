@@ -30,7 +30,7 @@ void InsertExecutor::Init() {
   cnt_ = 0;
 
   auto txn = exec_ctx_->GetTransaction();  // 获取事务
-  auto txn_mgr = exec_ctx_->GetTransactionManager();
+  // auto txn_mgr = exec_ctx_->GetTransactionManager();
 
   while (child_executor_->Next(&child_tuple, &child_rid)) {
     bool skip_insert = false; // 如果是插入删除的tuple, 成功后跳过本轮while
@@ -87,7 +87,7 @@ void InsertExecutor::Init() {
     auto key_rid = table_heap->InsertTuple(tuple_meta, child_tuple, exec_ctx_->GetLockManager(),
                                            exec_ctx_->GetTransaction(), plan_->GetTableOid());
     txn->AppendWriteSet(table_info->oid_, *key_rid);         // key_rid才是真正的rid
-    txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr);  // 记录该tuple到版本库, 放置一个无效的UndoLink
+    // txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr);  // 记录该tuple到版本库, 放置一个无效的UndoLink
     cnt_++;
 
     // 3. 插入所有索引（主键索引需要检测唯一性冲突）

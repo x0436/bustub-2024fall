@@ -28,7 +28,7 @@ void UpdateExecutor::Init() {
   table_info_ = table_info.get();
   auto table_heap = table_info->table_.get();
   auto txn = exec_ctx_->GetTransaction();
-  auto txn_mgr = exec_ctx_->GetTransactionManager();
+  // auto txn_mgr = exec_ctx_->GetTransactionManager();
   auto schema = child_executor_->GetOutputSchema();
   auto table_schema = table_info->schema_;
 
@@ -118,7 +118,7 @@ void UpdateExecutor::Init() {
         auto key_rid = table_heap->InsertTuple(new_tuple_meta, new_tuple, exec_ctx_->GetLockManager(),
                                                exec_ctx_->GetTransaction(), plan_->GetTableOid());
         txn->AppendWriteSet(table_info->oid_, *key_rid);
-        txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr);  // 记录该tuple到版本库, 放置一个无效的UndoLink
+        // txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr);  // 记录该tuple到版本库, 放置一个无效的UndoLink
 
         // 插入所有索引（主键索引需要检测唯一性冲突）
         for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
