@@ -122,8 +122,9 @@ auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const Tuple
       values.emplace_back(undo_log.tuple_.GetValue(&new_schema, j));
       j++;
     }  // 遍历完了构造成tuple
-    tuple = Tuple(values, schema);
-    tuple.SetRid(tuple.GetRid());
+    Tuple rebuilt(values, schema);
+    rebuilt.SetRid(base_tuple.GetRid());
+    tuple = std::move(rebuilt);
   }
   if (meta.is_deleted_) {  // 文档要求基tuple不存在就直接返回 nullopt
     return std::nullopt;
