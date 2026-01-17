@@ -492,15 +492,15 @@ void Modify(RID base_rid, const Tuple *target_tuple, ExecutorContext *exec_ctx,
 
   auto [base_meta, base_tuple, undo_link_opt] = GetTupleAndUndoLink(txn_mgr, table_heap, base_rid);
 
-  // auto tuple_meta = table_heap->GetTupleMeta(child_rid);
   IsWriteWriteConflict(txn, base_meta);  // 在修改前检查是否有写写冲突
   UndoLink undolink = undo_link_opt.has_value() ? undo_link_opt.value() : UndoLink();
   auto undolog_opt = txn_mgr->GetUndoLogOptional(undolink);
   bool has_log = undolog_opt.has_value();
   // auto ts = tuple_meta.ts_;
   UndoLog new_log;
+  std::optional<UndoLink> new_link = undo_link_opt;
 
-  // 设置GenerateUndoLog函数的参数
+  // 设置GenerateUndoLog函数的参数, nullptr表示"复活"
   auto old_tuple = base_meta.is_deleted_ ? nullptr : &base_tuple;
 
   // 判断当前处理的tuple是否没有任何 undo log 且 为本事务刚刚插入的
@@ -510,8 +510,8 @@ void Modify(RID base_rid, const Tuple *target_tuple, ExecutorContext *exec_ctx,
     if (!has_log || undolink.prev_txn_ != txn->GetTransactionId()) {
       // 第一次 update，追加 undo log
       new_log = GenerateNewUndoLog(&base_schema, old_tuple, target_tuple, base_meta.ts_, undolink);
-      auto new_link = txn->AppendUndoLog(new_log);
-      txn_mgr->UpdateUndoLink(base_rid, new_link);
+      new_link = txn->AppendUndoLog(new_log);
+      // txn_mgr->UpdateUndoLink(base_rid, new_link);
     } else {
       // 已有 undo log，合并并覆盖
       new_log = GenerateUpdatedUndoLog(&base_schema, old_tuple, target_tuple, undolog_opt.value());
@@ -523,11 +523,20 @@ void Modify(RID base_rid, const Tuple *target_tuple, ExecutorContext *exec_ctx,
   base_meta.ts_ = txn->GetTransactionTempTs();
   base_meta.is_deleted_ = (target_tuple == nullptr);  // 如果是删除, 为true
 
-  if (target_tuple != nullptr) {
-    table_heap->UpdateTupleInPlace(base_meta, *target_tuple, base_rid);
-  } else {
-    // 删除时需要写回元数据
-    table_heap->UpdateTupleMeta(base_meta, base_rid);
+  // if (target_tuple != nullptr) {
+  //   table_heap->UpdateTupleInPlace(base_meta, *target_tuple, base_rid);
+  // } else {
+  //   // 删除时需要写回元数据
+  //   table_heap->UpdateTupleMeta(base_meta, base_rid);
+  // }
+  auto check = [&](const TupleMeta &cur_meta, const Tuple & /*cur_tuple*/, RID /*cur_rid*/,
+                     std::optional<UndoLink> /*cur_link*/) -> bool {
+    IsWriteWriteConflict(txn, cur_meta);
+    return true;
+  };
+  auto write_tuple = (target_tuple != nullptr) ? *target_tuple : base_tuple;
+  if (!UpdateTupleAndUndoLink(txn_mgr, base_rid, new_link, table_heap, txn, base_meta, write_tuple, std::move(check))) {
+    return;
   }
 }
 
