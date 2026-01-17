@@ -189,13 +189,13 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
   auto size = schema->GetColumnCount();
   undolog.modified_fields_.resize(size, false);
 
-  if (target_tuple == nullptr) {  // 1.删除
-    std::fill(undolog.modified_fields_.begin(), undolog.modified_fields_.end(), true);
-    undolog.tuple_ = *base_tuple;
+  if (base_tuple == nullptr) {  // 1.插入
+    undolog.is_deleted_ = true;
     return undolog;
   }
-  if (base_tuple == nullptr) {  // 2.插入
-    undolog.is_deleted_ = true;
+  if (target_tuple == nullptr) { // 2.删除
+    std::fill(undolog.modified_fields_.begin(), undolog.modified_fields_.end(), true);
+    undolog.tuple_ = *base_tuple;
     return undolog;
   }
 
