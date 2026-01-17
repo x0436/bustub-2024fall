@@ -498,7 +498,7 @@ void Modify(RID base_rid, const Tuple *target_tuple, ExecutorContext *exec_ctx,
   auto undolog_opt = txn_mgr->GetUndoLogOptional(undolink);
   bool has_log = undolog_opt.has_value();
   // auto ts = tuple_meta.ts_;
-  UndoLog undolog;
+  UndoLog new_log;
 
   // 设置GenerateUndoLog函数的参数
   auto old_tuple = base_meta.is_deleted_ ? nullptr : &base_tuple;
@@ -509,13 +509,13 @@ void Modify(RID base_rid, const Tuple *target_tuple, ExecutorContext *exec_ctx,
   if (!is_current_txn_insert) {
     if (!has_log || undolink.prev_txn_ != txn->GetTransactionId()) {
       // 第一次 update，追加 undo log
-      undolog = GenerateNewUndoLog(&base_schema, old_tuple, target_tuple, base_meta.ts_, undolink);
-      auto new_link = txn->AppendUndoLog(undolog);
+      new_log = GenerateNewUndoLog(&base_schema, old_tuple, target_tuple, base_meta.ts_, undolink);
+      auto new_link = txn->AppendUndoLog(new_log);
       txn_mgr->UpdateUndoLink(base_rid, new_link);
     } else {
       // 已有 undo log，合并并覆盖
-      undolog = GenerateUpdatedUndoLog(&base_schema, old_tuple, target_tuple, undolog_opt.value());
-      txn->ModifyUndoLog(undolink.prev_log_idx_, undolog);
+      new_log = GenerateUpdatedUndoLog(&base_schema, old_tuple, target_tuple, undolog_opt.value());
+      txn->ModifyUndoLog(undolink.prev_log_idx_, new_log);
     }
   }
   txn->AppendWriteSet(table_info->oid_, base_rid);
