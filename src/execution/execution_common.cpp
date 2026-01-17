@@ -486,7 +486,7 @@ void IsWriteWriteConflict(Transaction *txn, TupleMeta meta) {
 void Modify(const Tuple *base_tuple, TupleMeta &base_meta, const Tuple *target_tuple, ExecutorContext *exec_ctx,
             TableInfo *table_info) {
   auto table_heap = table_info->table_.get();
-  auto &base_schema = table_info->schema_;
+  auto base_schema = table_info->schema_;
   auto txn = exec_ctx->GetTransaction();
   auto txn_mgr = exec_ctx->GetTransactionManager();
   auto base_rid = base_tuple->GetRid();

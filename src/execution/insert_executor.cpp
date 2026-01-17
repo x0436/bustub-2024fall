@@ -44,17 +44,15 @@ void InsertExecutor::Init() {
         index->ScanKey(key, &result, txn);
         if (!result.empty()) {
           // 主键已存在
-          // 获取该已存在tuple的metadate, 看基tuple是否已被删除
-          // 是否要看基tuple的时间戳
           auto old_rid = result.front();
           auto old_meta = table_heap->GetTuple(old_rid).first;
           if (old_meta.is_deleted_ == true) {
-            // 如果已存在但对应tuple被删除, 执行"复活"操作
+            // 1.1 主键已存在且被删除, 执行"复活"操作
             auto old_tuple = table_heap->GetTuple(old_rid);
             Modify(&old_tuple.second, old_meta, &child_tuple, exec_ctx_,
                    table_info.get());  // 这里为什么不填 nullptr 的
             skip_insert = true;
-            // 复活操作也要更新索引, 除开主键索引外都要更新
+            // 1.2 复活也需要更新索引, 除开主键索引外都要更新
             for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
               auto index = index_info->index_.get();
               auto key1 = old_tuple.second.KeyFromTuple(child_executor_->GetOutputSchema(), *index->GetKeySchema(),
@@ -69,28 +67,28 @@ void InsertExecutor::Init() {
               }
             }
           } else {
-            // 抛异常
+            // 3 主键已存在, 但未被删除, 抛异常
             txn->SetTainted();
             throw ExecutionException("(1) unique key conflict");
           }
         }
-        // 含有与插入的主键相同的tuple不存在
+        // 主键不存在
       }
     }
     if (skip_insert) {
       continue;  // 跳过本轮while
     }
-    // 纯插入
+    // 2.1 直接插入
     TupleMeta tuple_meta;
     tuple_meta.ts_ = txn->GetTransactionTempTs();  // 时间戳更新为 事务临时时间戳
     tuple_meta.is_deleted_ = false;
     auto key_rid = table_heap->InsertTuple(tuple_meta, child_tuple, exec_ctx_->GetLockManager(),
                                            exec_ctx_->GetTransaction(), plan_->GetTableOid());
-    txn->AppendWriteSet(table_info->oid_, *key_rid);         // key_rid才是真正的rid
-    // txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr);  // 记录该tuple到版本库, 放置一个无效的UndoLink
+    txn->AppendWriteSet(table_info->oid_, *key_rid); // key_rid才是真正的rid
+    // txn_mgr->UpdateUndoLink(*key_rid, UndoLink(), nullptr);
     cnt_++;
 
-    // 3. 插入所有索引（主键索引需要检测唯一性冲突）
+    // 2.2 插入所有索引
     for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
       auto index = index_info->index_.get();
       auto key =
