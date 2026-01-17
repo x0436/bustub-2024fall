@@ -49,7 +49,7 @@ void InsertExecutor::Init() {
           if (old_meta.is_deleted_ == true) {
             // 1.1 主键已存在且被删除, 执行"复活"操作
             auto old_tuple = table_heap->GetTuple(old_rid);
-            Modify(&old_tuple.second, old_meta, &child_tuple, exec_ctx_,
+            Modify(old_rid, &child_tuple, exec_ctx_,
                    table_info.get());  // 这里为什么不填 nullptr 的
             skip_insert = true;
             // 1.2 复活也需要更新索引, 除开主键索引外都要更新

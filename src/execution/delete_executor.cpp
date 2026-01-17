@@ -24,7 +24,7 @@ void DeleteExecutor::Init() {
   child_executor_->Init();
   auto catalog = exec_ctx_->GetCatalog();
   auto table_info = catalog->GetTable(plan_->GetTableOid());
-  auto table_heap = table_info->table_.get();
+  // auto table_heap = table_info->table_.get();
   auto schema = child_executor_->GetOutputSchema();
 
   Tuple child_tuple;
@@ -60,8 +60,7 @@ void DeleteExecutor::Init() {
     // tuple_meta.ts_ = txn->GetTransactionTempTs();
     // tuple_meta.is_deleted_ = true;
     // table_heap->UpdateTupleMeta(tuple_meta, child_rid);
-    auto tuple_meta = table_heap->GetTupleMeta(child_rid);
-    Modify(&child_tuple, tuple_meta, nullptr, exec_ctx_, table_info.get());
+    Modify(child_rid, nullptr, exec_ctx_, table_info.get());
     cnt_++;
   }
 }

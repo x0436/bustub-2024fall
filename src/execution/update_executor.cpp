@@ -64,15 +64,12 @@ void UpdateExecutor::Init() {
   // 如果要更新主键, 先把所有tuple都删除
   if (update_pk) {
     for (const auto &[child_tuple, child_rid] : tuples) {
-      auto tuple_meta = table_heap->GetTupleMeta(child_rid);
-      Modify(&child_tuple, tuple_meta, nullptr, exec_ctx_, table_info.get());
+      Modify(child_rid, nullptr, exec_ctx_, table_info.get());
     }
   }
 
   // 遍历存储的tuple
   for (const auto &[child_tuple, child_rid] : tuples) {
-    auto tuple_meta = table_heap->GetTupleMeta(child_rid);
-
     // new_tuple
     std::vector<Value> vals;
     vals.reserve(schema.GetColumnCount());
@@ -92,9 +89,8 @@ void UpdateExecutor::Init() {
       if (!result.empty()) {
         // 1.1 重复key存在, 复活
         auto old_rid = result.front();
-        auto old_meta = table_heap->GetTuple(old_rid).first;
         auto old_tuple = table_heap->GetTuple(old_rid);
-        Modify(&old_tuple.second, old_meta, &new_tuple, exec_ctx_, table_info.get());
+        Modify(old_rid, &new_tuple, exec_ctx_, table_info.get());
         // 更新索引, 除开主键索引外都要更新
         for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
           auto index = index_info->index_.get();
@@ -136,7 +132,7 @@ void UpdateExecutor::Init() {
       }
     } else {
       // 2 更新的不是主键, 直接更新
-      Modify(&child_tuple, tuple_meta, &new_tuple, exec_ctx_, table_info.get());
+      Modify(child_rid, &new_tuple, exec_ctx_, table_info.get());
 
       // 更新该表相关的所有索引
       for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {

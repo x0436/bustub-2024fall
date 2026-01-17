@@ -483,24 +483,25 @@ void IsWriteWriteConflict(Transaction *txn, TupleMeta meta) {
 }
 
 // 更新table heap中的一个tuple 并更新 UndoLog write_set 等信息
-void Modify(const Tuple *base_tuple, TupleMeta &base_meta, const Tuple *target_tuple, ExecutorContext *exec_ctx,
+void Modify(RID base_rid, const Tuple *target_tuple, ExecutorContext *exec_ctx,
             TableInfo *table_info) {
   auto table_heap = table_info->table_.get();
   auto base_schema = table_info->schema_;
   auto txn = exec_ctx->GetTransaction();
   auto txn_mgr = exec_ctx->GetTransactionManager();
-  auto base_rid = base_tuple->GetRid();
+
+  auto [base_meta, base_tuple, undo_link_opt] = GetTupleAndUndoLink(txn_mgr, table_heap, base_rid);
+
   // auto tuple_meta = table_heap->GetTupleMeta(child_rid);
   IsWriteWriteConflict(txn, base_meta);  // 在修改前检查是否有写写冲突
-  auto undolink_opt = txn_mgr->GetUndoLink(base_rid);
-  UndoLink undolink = undolink_opt.has_value() ? undolink_opt.value() : UndoLink();
+  UndoLink undolink = undo_link_opt.has_value() ? undo_link_opt.value() : UndoLink();
   auto undolog_opt = txn_mgr->GetUndoLogOptional(undolink);
   bool has_log = undolog_opt.has_value();
   // auto ts = tuple_meta.ts_;
   UndoLog undolog;
 
   // 设置GenerateUndoLog函数的参数
-  auto old_tuple = base_meta.is_deleted_ ? nullptr : base_tuple;
+  auto old_tuple = base_meta.is_deleted_ ? nullptr : &base_tuple;
 
   // 判断当前处理的tuple是否没有任何 undo log 且 为本事务刚刚插入的
   bool is_current_txn_insert = (undolink.prev_txn_ == INVALID_TXN_ID) && (base_meta.ts_ == txn->GetTransactionTempTs());

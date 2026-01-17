@@ -91,6 +91,6 @@ auto GetUndoLogSchema(const Schema &base_schema, const UndoLog &undo_log) -> Sch
 
 void IsWriteWriteConflict(Transaction *txn, TupleMeta meta);
 
-void Modify(const Tuple *base_tuple, TupleMeta &base_meta, const Tuple *target_tuple,
+void Modify(RID base_rid, const Tuple *target_tuple,
             ExecutorContext *exec_ctx, TableInfo *table_info);
 }  // namespace bustub
