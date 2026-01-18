@@ -90,21 +90,28 @@ void UpdateExecutor::Init() {
         // 1.1 重复key存在, 复活
         auto old_rid = result.front();
         auto old_tuple = table_heap->GetTuple(old_rid);
-        Modify(old_rid, &new_tuple, exec_ctx_, table_info.get());
-        // 更新索引, 除开主键索引外都要更新
-        for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
-          auto index = index_info->index_.get();
-          auto key1 = old_tuple.second.KeyFromTuple(child_executor_->GetOutputSchema(), *index->GetKeySchema(),
-                                                    index->GetKeyAttrs());
-          auto key2 =
-              new_tuple.KeyFromTuple(child_executor_->GetOutputSchema(), *index->GetKeySchema(), index->GetKeyAttrs());
-          if (index_info->is_primary_key_) {
-            continue;
-          } else {
+        auto old_meta = old_tuple.first;
+        if (old_meta.is_deleted_) {
+          Modify(old_rid, &new_tuple, exec_ctx_, table_info.get());
+          // 更新索引, 除开主键索引外都要更新
+          for (const auto &index_info : catalog->GetTableIndexes(table_info->name_)) {
+            auto index = index_info->index_.get();
+            auto key1 = old_tuple.second.KeyFromTuple(child_executor_->GetOutputSchema(), *index->GetKeySchema(),
+                                                      index->GetKeyAttrs());
+            auto key2 = new_tuple.KeyFromTuple(child_executor_->GetOutputSchema(), *index->GetKeySchema(),
+                                               index->GetKeyAttrs());
+            if (index_info->is_primary_key_) {
+              continue;
+            }
             index->DeleteEntry(key1, old_rid, exec_ctx_->GetTransaction());
             index->InsertEntry(key2, old_rid, exec_ctx_->GetTransaction());
           }
+        } else {
+          // 3 主键已存在, 但未被删除, 抛异常
+          txn->SetTainted();
+          throw ExecutionException("(1) unique key conflict");
         }
+
       } else {
         // 1.2 不存在重复key, 直接插入
         TupleMeta new_tuple_meta;
@@ -144,7 +151,7 @@ void UpdateExecutor::Init() {
         index->DeleteEntry(key1, child_rid, exec_ctx_->GetTransaction());  // 删除
 
         auto key2 = new_tuple.KeyFromTuple(table_schema, *index->GetKeySchema(),
-                                           index->GetKeyAttrs());          // 感觉子算子的schema和表的schema一样
+                                           index->GetKeyAttrs());  // 感觉子算子的schema和表的schema一样
         index->InsertEntry(key2, child_rid, exec_ctx_->GetTransaction());  // 插入
       }
     }

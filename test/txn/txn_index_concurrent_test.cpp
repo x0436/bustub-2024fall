@@ -120,20 +120,20 @@ TEST(TxnIndexTest, IndexConcurrentUpdateTest) {  // NOLINT
     }
     return fmt::format("INSERT INTO maintable VALUES {}", fmt::join(data, ","));
   };
-  const int trials = 50; // 试验轮数
+  const int trials = 50;  // 试验轮数
   for (int n = 0; n < trials; n++) {
     auto bustub = std::make_unique<BusTubInstance>();
-    EnsureIndexScan(*bustub); // 确保索引扫描可用
+    EnsureIndexScan(*bustub);  // 确保索引扫描可用
     Execute(*bustub, "CREATE TABLE maintable(a int primary key, b int)");
     std::vector<std::thread> update_threads;
-    const int thread_cnt = 8; // 线程数
-    const int number_cnt = 20; // 每轮数据行数
-    Execute(*bustub, generate_insert_sql(number_cnt), false); // 插入初始数据
+    const int thread_cnt = 8;                                  // 线程数
+    const int number_cnt = 20;                                 // 每轮数据行数
+    Execute(*bustub, generate_insert_sql(number_cnt), false);  // 插入初始数据
     TableHeapEntryNoMoreThan(*bustub, bustub->catalog_->GetTable("maintable").get(), number_cnt);
     update_threads.reserve(thread_cnt);
     std::map<int, std::vector<bool>> operation_result;
     std::mutex result_mutex;
-    bool add_delete_insert = (n % 2 == 1); // 奇数轮会做 update+delete+insert
+    bool add_delete_insert = (n % 2 == 1);  // 奇数轮会做 update+delete+insert
     fmt::println(stderr, "trial {}: running with {} threads with {} rows, add_delete_insert={}", n + 1, thread_cnt,
                  number_cnt, add_delete_insert);
     global_disable_execution_exception_print.store(true);
@@ -145,10 +145,10 @@ TEST(TxnIndexTest, IndexConcurrentUpdateTest) {  // NOLINT
         std::vector<bool> result;
         result.reserve(number_cnt);
         for (int i = 0; i < number_cnt; i++) {
-          auto sql = generate_sql(thread, i); // 生成 update 语句
+          auto sql = generate_sql(thread, i);  // 生成 update 语句
           auto *txn = bustub->txn_manager_->Begin();
           if (!bustub->ExecuteSqlTxn(sql, writer, txn)) {
-            result.push_back(false); // update 失败
+            result.push_back(false);  // update 失败
             continue;
           }
           // 如果是奇数轮，额外做 select+delete+insert
@@ -166,7 +166,7 @@ TEST(TxnIndexTest, IndexConcurrentUpdateTest) {  // NOLINT
                           "cannot insert data");
           }
           BUSTUB_ENSURE(bustub->txn_manager_->Commit(txn), "cannot commit??");
-          result.push_back(true); // update 成功
+          result.push_back(true);  // update 成功
           std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         // 记录每个线程每行的操作结果
@@ -188,8 +188,8 @@ TEST(TxnIndexTest, IndexConcurrentUpdateTest) {  // NOLINT
     for (int i = 0; i < number_cnt; i++) {
       int winner = 0;
       for (int j = 0; j < thread_cnt; j++) {
-        if (operation_result[j][i]) { 
-          winner += (1 << j); // 统计所有成功 update 的线程
+        if (operation_result[j][i]) {
+          winner += (1 << j);  // 统计所有成功 update 的线程
         }
       }
       expected_rows.push_back({i, winner});

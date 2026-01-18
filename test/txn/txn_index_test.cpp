@@ -163,9 +163,10 @@ TEST(TxnIndexTest, UpdateTest) {  // NOLINT
     WithTxn(txn3, QueryIndex(*bustub, _var, _txn, query, "col1", std::vector<int>{1, 2, 3, 4, 5, 6},
                              IntResult{{1, 0}, {}, {}, {4, 0}, {}, {}}));
 
-    WithTxn(txn3, ExecuteTxn(*bustub, _var, _txn, "INSERT INTO maintable VALUES (2, 1), (5, 1), (3, 1), (6, 1)")); // 插入
+    WithTxn(txn3,
+            ExecuteTxn(*bustub, _var, _txn, "INSERT INTO maintable VALUES (2, 1), (5, 1), (3, 1), (6, 1)"));  // 插入
     TxnMgrDbg("after txn3 insert operations", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
-    WithTxn(txn3, ExecuteTxn(*bustub, _var, _txn, "UPDATE maintable SET col2 = col2 + 10")); // UPDATE
+    WithTxn(txn3, ExecuteTxn(*bustub, _var, _txn, "UPDATE maintable SET col2 = col2 + 10"));  // UPDATE
     TxnMgrDbg("after txn3 update operations", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
     WithTxn(txn3, QueryShowResult(*bustub, _var, _txn, query,
                                   IntResult{
@@ -185,7 +186,7 @@ TEST(TxnIndexTest, UpdateTest) {  // NOLINT
                                  {5, 11},
                                  {6, 11},
                              }));
-    WithTxn(txn3, CommitTxn(*bustub, _var, _txn)); // 事务3提交
+    WithTxn(txn3, CommitTxn(*bustub, _var, _txn));  // 事务3提交
     TxnMgrDbg("after commit", bustub->txn_manager_.get(), table_info.get(), table_info->table_.get());
 
     auto txn4 = BeginTxn(*bustub, "txn4");

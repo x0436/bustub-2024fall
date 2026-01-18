@@ -19,8 +19,8 @@
 #include "catalog/catalog.h"
 #include "catalog/schema.h"
 #include "concurrency/transaction.h"
-#include "storage/table/tuple.h"
 #include "execution/executor_context.h"
+#include "storage/table/tuple.h"
 
 namespace bustub {
 
@@ -91,6 +91,5 @@ auto GetUndoLogSchema(const Schema &base_schema, const UndoLog &undo_log) -> Sch
 
 void IsWriteWriteConflict(Transaction *txn, TupleMeta meta);
 
-void Modify(RID base_rid, const Tuple *target_tuple,
-            ExecutorContext *exec_ctx, TableInfo *table_info);
+void Modify(RID base_rid, const Tuple *target_tuple, ExecutorContext *exec_ctx, TableInfo *table_info);
 }  // namespace bustub

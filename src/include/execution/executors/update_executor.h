@@ -20,10 +20,10 @@
 #include "execution/execution_common.h"
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
+#include "execution/expressions/column_value_expression.h"
 #include "execution/plans/update_plan.h"
 #include "storage/table/tuple.h"
 #include "type/value_factory.h"
-#include "execution/expressions/column_value_expression.h"
 
 namespace bustub {
 

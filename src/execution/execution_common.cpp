@@ -193,7 +193,7 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
     undolog.is_deleted_ = true;
     return undolog;
   }
-  if (target_tuple == nullptr) { // 2.删除
+  if (target_tuple == nullptr) {  // 2.删除
     std::fill(undolog.modified_fields_.begin(), undolog.modified_fields_.end(), true);
     undolog.tuple_ = *base_tuple;
     return undolog;
@@ -483,8 +483,7 @@ void IsWriteWriteConflict(Transaction *txn, TupleMeta meta) {
 }
 
 // 更新table heap中的一个tuple 并更新 UndoLog write_set 等信息
-void Modify(RID base_rid, const Tuple *target_tuple, ExecutorContext *exec_ctx,
-            TableInfo *table_info) {
+void Modify(RID base_rid, const Tuple *target_tuple, ExecutorContext *exec_ctx, TableInfo *table_info) {
   auto table_heap = table_info->table_.get();
   auto base_schema = table_info->schema_;
   auto txn = exec_ctx->GetTransaction();
@@ -530,7 +529,7 @@ void Modify(RID base_rid, const Tuple *target_tuple, ExecutorContext *exec_ctx,
   //   table_heap->UpdateTupleMeta(base_meta, base_rid);
   // }
   auto check = [&](const TupleMeta &cur_meta, const Tuple & /*cur_tuple*/, RID /*cur_rid*/,
-                     std::optional<UndoLink> /*cur_link*/) -> bool {
+                   std::optional<UndoLink> /*cur_link*/) -> bool {
     IsWriteWriteConflict(txn, cur_meta);
     return true;
   };
